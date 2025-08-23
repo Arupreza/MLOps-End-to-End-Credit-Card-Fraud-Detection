@@ -9,3 +9,7 @@ dagshub
 torch
 torchvision
 optuna
+ipykernel
+seaborn
+tdqm
+matplotlib
