@@ -1,0 +1,13 @@
+preprocess:
+  input_path: "Data/raw/creditcard_2023.csv"
+  output_path: "Data/processed/creditcard_processed.csv"
+  create_split: true
+  train_size: 0.7     # 70% for training
+  val_size: 0.15      # 15% for validation
+  test_size: 0.15     # 15% for testing
+  random_state: 42
+
+train:
+  data_path: "Data/processed/creditcard_processed.csv"
+  model_path: "Models/creditcard_model.pth"
+  random_state: 42

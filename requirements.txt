@@ -1,0 +1,10 @@
+mlflow
+scikit-learn
+pandas
+numpy
+hyperopt
+dvc
+dvc-s3
+dagshub
+torch
+torchvision
