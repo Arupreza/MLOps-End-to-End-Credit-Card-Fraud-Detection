@@ -1,0 +1,6 @@
+artifact_location: file:///home/lisa/Arupreza/MlOps_End_to_End/mlruns/425298191943124994
+creation_time: 1755974808028
+experiment_id: '425298191943124994'
+last_update_time: 1755974808028
+lifecycle_stage: active
+name: credit_card_fraud_detection

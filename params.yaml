@@ -1,169 +1,45 @@
-# params.yaml - DVC parameters file
 prepare:
-  train_size: 0.7
-  val_size: 0.15
-  test_size: 0.15
-  random_state: 42
   sequence_length: 10
+  random_state: 42
 
 model:
   input_size: 12
   num_classes: 2
 
 optuna:
-  n_trials: 100
-  timeout: 3600  # 1 hour timeout
-  study_name: "gru_fraud_detection"
-  direction: "maximize"
-  
-  # Hyperparameter search space
+  n_trials: 20
+  timeout: 3600
+  study_name: gru_fraud_detection
+  direction: maximize
+  # (optional) hyperparameter ranges used later in your script
   hyperparameters:
+    batch_size:
+      type: choice
+      choices: [32, 64, 128]
     hidden_size:
-      type: "int"
+      type: int
       low: 32
       high: 256
-      step: 32
     num_layers:
-      type: "int" 
+      type: int
       low: 1
-      high: 4
+      high: 3
     dropout:
-      type: "float"
-      low: 0.1
-      high: 0.7
+      type: float
+      low: 0.0
+      high: 0.5
     learning_rate:
-      type: "loguniform"
-      low: 1e-5
-      high: 1e-2
-    batch_size:
-      type: "categorical"
-      choices: [16, 32, 64, 128]
-    num_epochs:
-      type: "int"
-      low: 10
-      high: 50
+      type: float
+      low: 1.0e-5
+      high: 1.0e-2
     optimizer:
-      type: "categorical"
-      choices: ["Adam", "SGD", "RMSprop"]
+      type: choice
+      choices: [adam, adamw, sgd]
 
 training:
-  final_epochs: 100
+  final_epochs: 50
   early_stopping_patience: 15
-  save_best_only: true
 
 mlflow:
-  experiment_name: "credit_card_fraud_detection"
-  tracking_uri: "https://dagshub.com/Arupreza/MlOps_End_to_End.mlflow"
-  artifact_location: "s3://mlflow-artifacts-bucket"
-
-evaluation:
-  metrics:
-    - "accuracy"
-    - "precision"
-    - "recall"
-    - "f1_score"
-    - "roc_auc"
-  plot_confusion_matrix: true
-  plot_roc_curve: true
-  plot_precision_recall_curve: true
-
----
-# dvc.yaml - DVC pipeline configuration
-stages:
-  prepare_data:
-    cmd: python src/prepare_data.py
-    deps:
-    - src/prepare_data.py
-    - data/raw/creditcard.csv
-    - params.yaml
-    params:
-    - prepare
-    outs:
-    - data/processed/X_train.npy
-    - data/processed/X_val.npy
-    - data/processed/X_test.npy
-    - data/processed/y_train.npy
-    - data/processed/y_val.npy
-    - data/processed/y_test.npy
-    - data/processed/scaler.pkl
-    - data/processed/data_info.json
-
-  hyperparameter_optimization:
-    cmd: python src/hyperparameter_optimization.py
-    deps:
-    - src/hyperparameter_optimization.py
-    - src/models/gru_model.py
-    - data/processed/X_train.npy
-    - data/processed/X_val.npy
-    - data/processed/y_train.npy
-    - data/processed/y_val.npy
-    - params.yaml
-    params:
-    - optuna
-    - model
-    outs:
-    - models/optuna_study/
-    - models/optuna_study/best_params.json
-    - models/optuna_study/study.pkl
-    - models/optuna_study/optimization_plots.png
-    metrics:
-    - models/optuna_study/optimization_metrics.json
-
-  train_final_model:
-    cmd: python src/train_final_model.py
-    deps:
-    - src/train_final_model.py
-    - src/models/gru_model.py
-    - data/processed/X_train.npy
-    - data/processed/X_val.npy
-    - data/processed/y_train.npy
-    - data/processed/y_val.npy
-    - models/optuna_study/best_params.json
-    - params.yaml
-    params:
-    - training
-    - model
-    outs:
-    - models/final_model/
-    - models/final_model/best_model.pth
-    - models/final_model/model_info.json
-    metrics:
-    - models/final_model/training_metrics.json
-    plots:
-    - models/final_model/training_plots.png
-
-  evaluate_model:
-    cmd: python src/evaluate_model.py
-    deps:
-    - src/evaluate_model.py
-    - src/models/gru_model.py
-    - data/processed/X_test.npy
-    - data/processed/y_test.npy
-    - data/processed/scaler.pkl
-    - models/final_model/best_model.pth
-    - models/final_model/model_info.json
-    - params.yaml
-    params:
-    - evaluation
-    - model
-    outs:
-    - reports/evaluation_report.json
-    - reports/confusion_matrix.png
-    - reports/classification_report.txt
-    metrics:
-    - reports/test_metrics.json
-    plots:
-    - reports/roc_curve.png:
-        cache: false
-    - reports/precision_recall_curve.png:
-        cache: false
-
-  model_validation:
-    cmd: python src/model_validation.py
-    deps:
-    - src/model_validation.py
-    - models/final_model/best_model.pth
-    - reports/test_metrics.json
-    - params.yaml
-    outs:
-    - reports/model_validation.json
+  experiment_name: credit_card_fraud_detection
+  # tracking_uri: http://127.0.0.1:5000

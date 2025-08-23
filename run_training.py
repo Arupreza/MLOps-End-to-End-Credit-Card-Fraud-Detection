@@ -1,4 +1,4 @@
-# run_training.py - Complete Credit Card Fraud Detection Training Pipeline
+# run_training.py - YAML-Synced Credit Card Fraud Detection Training Pipeline
 import sys
 import pandas as pd
 import torch
@@ -6,13 +6,97 @@ from torch.utils.data import DataLoader, TensorDataset
 import numpy as np
 import os
 import json
+import yaml
 from datetime import datetime
 import traceback
 
 # Add src to path
 sys.path.append('src')
 
-def load_processed_data():
+def _deep_merge(a: dict, b: dict) -> dict:
+    """Deep-merge dict b into a (a wins on type conflicts)."""
+    out = dict(a)
+    for k, v in b.items():
+        if k in out and isinstance(out[k], dict) and isinstance(v, dict):
+            out[k] = _deep_merge(out[k], v)
+        else:
+            out[k] = v
+    return out
+
+def load_params():
+    """Load parameters from params.yaml; supports multi-document YAML."""
+    try:
+        with open('params.yaml', 'r') as f:
+            docs = list(yaml.safe_load_all(f))
+        if not docs:
+            print("❌ params.yaml is empty; using defaults.")
+            return get_default_params()
+
+        # Merge docs left→right; later docs override earlier ones
+        params = {}
+        for d in docs:
+            if d is None:
+                continue
+            if not isinstance(d, dict):
+                print("⚠️  Ignoring non-mapping YAML document.")
+                continue
+            params = _deep_merge(params, d)
+
+        # Optional: validate essential sections/keys exist
+        required_paths = [
+            ("prepare", "sequence_length"),
+            ("model", "input_size"),
+            ("model", "num_classes"),
+            ("optuna", "n_trials"),
+        ]
+        for path in required_paths:
+            cur = params
+            for key in path:
+                if key not in cur:
+                    raise KeyError(f"Missing key in params.yaml: {'/'.join(path)}")
+                cur = cur[key]
+
+        print("✅ Successfully loaded params.yaml (multi-doc supported)")
+        return params
+
+    except FileNotFoundError:
+        print("❌ params.yaml not found! Using default parameters...")
+        return get_default_params()
+    except yaml.YAMLError as e:
+        print(f"❌ YAML parse error: {e}\nUsing default parameters…")
+        return get_default_params()
+    except Exception as e:
+        print(f"❌ Error loading params.yaml: {e}\nUsing default parameters…")
+        return get_default_params()
+
+
+def get_default_params():
+    """Default parameters if YAML file is not available"""
+    return {
+        'prepare': {
+            'sequence_length': 10,
+            'random_state': 42
+        },
+        'model': {
+            'input_size': 12,
+            'num_classes': 2
+        },
+        'optuna': {
+            'n_trials': 20,
+            'timeout': 3600,
+            'study_name': "gru_fraud_detection",
+            'direction': "maximize"
+        },
+        'training': {
+            'final_epochs': 50,
+            'early_stopping_patience': 15
+        },
+        'mlflow': {
+            'experiment_name': "credit_card_fraud_detection"
+        }
+    }
+
+def load_processed_data(params):
     """Load your processed CSV files"""
     
     print("Loading processed data files...")
@@ -40,6 +124,15 @@ def load_processed_data():
             y_val = val_df.iloc[:, -1].values.astype(int)
             print("Using last column as target")
         
+        # Verify input size matches params
+        actual_input_size = X_train.shape[1]
+        expected_input_size = params['model']['input_size']
+        
+        if actual_input_size != expected_input_size:
+            print(f"⚠️  Warning: Data input size ({actual_input_size}) != params.yaml input_size ({expected_input_size})")
+            print(f"   Using actual data size: {actual_input_size}")
+            params['model']['input_size'] = actual_input_size
+        
         print(f"Original features shape: {X_train.shape}")
         print(f"Train class distribution: Normal={np.sum(y_train==0)}, Fraud={np.sum(y_train==1)}")
         print(f"Val class distribution: Normal={np.sum(y_val==0)}, Fraud={np.sum(y_val==1)}")
@@ -50,22 +143,40 @@ def load_processed_data():
         print(f"Error loading data: {e}")
         return None, None, None, None
 
-def create_sequences_for_gru(X, sequence_length=1):
+def create_sequences_for_gru(X, sequence_length):
     """
     Convert tabular data to sequence format for GRU
-    For tabular data, we can use sequence_length=1 (each sample is a sequence of length 1)
+    Uses sequence_length from params.yaml
     """
-    # Add sequence dimension: (samples, features) -> (samples, sequence_length, features)
-    X_sequences = X.reshape(X.shape[0], sequence_length, X.shape[1])
-    print(f"Converted to sequence format: {X.shape} -> {X_sequences.shape}")
+    if sequence_length == 1:
+        # For sequence_length=1, just add dimension
+        X_sequences = X.reshape(X.shape[0], 1, X.shape[1])
+        print(f"Converted to sequence format (tabular): {X.shape} -> {X_sequences.shape}")
+    else:
+        # For sequence_length > 1, create actual sequences
+        sequences = []
+        for i in range(len(X) - sequence_length + 1):
+            seq = X[i:i + sequence_length]
+            sequences.append(seq)
+        X_sequences = np.array(sequences)
+        print(f"Created sequences of length {sequence_length}: {X.shape} -> {X_sequences.shape}")
+        print(f"Note: {len(X) - len(X_sequences)} samples lost due to sequence creation")
+        
     return X_sequences
 
-def create_dataloaders(X_train, X_val, y_train, y_val, batch_size=32, sequence_length=1):
-    """Create PyTorch DataLoaders with proper sequence format"""
+def create_dataloaders(X_train, X_val, y_train, y_val, params):
+    """Create PyTorch DataLoaders using parameters from YAML"""
+    
+    sequence_length = params['prepare']['sequence_length']
     
     # Convert to sequences for GRU
     X_train_seq = create_sequences_for_gru(X_train, sequence_length)
     X_val_seq = create_sequences_for_gru(X_val, sequence_length)
+    
+    # Adjust targets if we created sequences (for sequence_length > 1)
+    if sequence_length > 1:
+        y_train = y_train[sequence_length-1:]  # Take corresponding labels
+        y_val = y_val[sequence_length-1:]
     
     # Convert to tensors
     X_train_tensor = torch.FloatTensor(X_train_seq)
@@ -73,22 +184,77 @@ def create_dataloaders(X_train, X_val, y_train, y_val, batch_size=32, sequence_l
     X_val_tensor = torch.FloatTensor(X_val_seq)
     y_val_tensor = torch.LongTensor(y_val)
     
-    print(f"Tensor shapes: X_train={X_train_tensor.shape}, y_train={y_train_tensor.shape}")
+    print(f"Final tensor shapes: X_train={X_train_tensor.shape}, y_train={y_train_tensor.shape}")
     
     # Create datasets
     train_dataset = TensorDataset(X_train_tensor, y_train_tensor)
     val_dataset = TensorDataset(X_val_tensor, y_val_tensor)
     
-    # Create DataLoaders
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+    # Use batch_size from hyperparameter suggestions or default
+    default_batch_size = 32
+    if 'hyperparameters' in params['optuna'] and 'batch_size' in params['optuna']['hyperparameters']:
+        # Use one of the suggested batch sizes as default
+        batch_choices = params['optuna']['hyperparameters']['batch_size'].get('choices', [32])
+        default_batch_size = batch_choices[0] if batch_choices else 32
     
-    print(f"Created DataLoaders with batch_size={batch_size}")
+    # Create DataLoaders
+    train_loader = DataLoader(train_dataset, batch_size=default_batch_size, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=default_batch_size, shuffle=False)
+    
+    print(f"Created DataLoaders with batch_size={default_batch_size}")
     
     return train_loader, val_loader
 
-def save_model_and_info(best_model, best_params, best_value, input_size, num_classes, sequence_length):
-    """Save the trained model and its metadata"""
+def setup_mlflow(params):
+    """Setup MLflow tracking using parameters from YAML"""
+    try:
+        import mlflow
+        
+        # Set MLflow configuration from YAML
+        if 'mlflow' in params:
+            mlflow_config = params['mlflow']
+            
+            # Set tracking URI if specified
+            if 'tracking_uri' in mlflow_config:
+                os.environ['MLFLOW_TRACKING_URI'] = mlflow_config['tracking_uri']
+                mlflow.set_tracking_uri(mlflow_config['tracking_uri'])
+            
+            # Set experiment name
+            experiment_name = mlflow_config.get('experiment_name', 'credit_card_fraud_detection')
+            mlflow.set_experiment(experiment_name)
+            
+            print(f"✅ MLflow configured: {experiment_name}")
+            return True
+        else:
+            print("⚠️  No MLflow config in params.yaml")
+            return False
+            
+    except Exception as e:
+        print(f"⚠️  MLflow setup failed: {e}")
+        return False
+
+def run_optuna_optimization_with_params(train_loader, val_loader, params):
+    """Run Optuna optimization using parameters from YAML"""
+    
+    # Import training functions
+    from train import run_optuna_optimization
+    
+    # Extract parameters
+    input_size = params['model']['input_size']
+    num_classes = params['model']['num_classes']
+    n_trials = params['optuna']['n_trials']
+    
+    print(f"Running optimization with {n_trials} trials (from params.yaml)")
+    
+    # Run optimization
+    result = run_optuna_optimization(
+        train_loader, val_loader, input_size, num_classes, n_trials
+    )
+    
+    return result
+
+def save_model_and_info(best_model, best_params, best_value, params):
+    """Save the trained model and its metadata using YAML config"""
     
     print("\nSaving model and metadata...")
     
@@ -99,14 +265,14 @@ def save_model_and_info(best_model, best_params, best_value, input_size, num_cla
     model_path = 'models/best_fraud_detection_model.pth'
     torch.save(best_model.state_dict(), model_path)
     
-    # Create comprehensive model info
+    # Create comprehensive model info that includes YAML config
     model_info = {
         'model_path': model_path,
         'model_architecture': {
-            'input_size': input_size,
+            'input_size': params['model']['input_size'],
             'hidden_size': best_params['hidden_size'],
             'num_layers': best_params['num_layers'],
-            'num_classes': num_classes,
+            'num_classes': params['model']['num_classes'],
             'dropout': best_params['dropout']
         },
         'best_params': best_params,
@@ -115,131 +281,134 @@ def save_model_and_info(best_model, best_params, best_value, input_size, num_cla
             'accuracy_percentage': f"{best_value:.2%}"
         },
         'training_config': {
-            'sequence_length': sequence_length,
+            'sequence_length': params['prepare']['sequence_length'],
             'optimizer': best_params['optimizer'],
             'learning_rate': best_params['learning_rate'],
-            'batch_size': best_params['batch_size']
+            'batch_size': best_params['batch_size'],
+            'n_trials_completed': params['optuna']['n_trials'],
+            'final_epochs': params['training']['final_epochs'],
+            'early_stopping_patience': params['training']['early_stopping_patience']
+        },
+        'yaml_config': {
+            'params_file': 'params.yaml',
+            'used_params': params
         },
         'metadata': {
             'timestamp': datetime.now().isoformat(),
             'framework': 'PyTorch',
             'model_type': 'GRU',
-            'task': 'Credit Card Fraud Detection'
+            'task': 'Credit Card Fraud Detection',
+            'mlflow_experiment': params.get('mlflow', {}).get('experiment_name', 'N/A')
         }
     }
     
-    # Save model info as JSON
+    # Save model info as JSON (compatible with your evaluate.py)
     info_path = 'models/model_info.json'
     with open(info_path, 'w') as f:
         json.dump(model_info, f, indent=2)
     
-    # Create a simple summary file
+    # Create a YAML-compatible summary
     summary_path = 'models/model_summary.txt'
     with open(summary_path, 'w') as f:
         f.write("Credit Card Fraud Detection Model Summary\n")
         f.write("=" * 50 + "\n")
         f.write(f"Training completed: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write(f"Configuration source: params.yaml\n")
         f.write(f"Best validation accuracy: {best_value:.4f} ({best_value:.2%})\n")
-        f.write(f"Model architecture: GRU with {best_params['num_layers']} layers\n")
-        f.write(f"Hidden size: {best_params['hidden_size']}\n")
-        f.write(f"Dropout: {best_params['dropout']:.4f}\n")
-        f.write(f"Optimizer: {best_params['optimizer']}\n")
-        f.write(f"Learning rate: {best_params['learning_rate']:.6f}\n")
-        f.write(f"Batch size: {best_params['batch_size']}\n")
-        f.write("\nFiles created:\n")
-        f.write(f"- {model_path}\n")
-        f.write(f"- {info_path}\n")
-        f.write(f"- {summary_path}\n")
+        f.write(f"\nConfiguration from params.yaml:\n")
+        f.write(f"  Sequence length: {params['prepare']['sequence_length']}\n")
+        f.write(f"  Optimization trials: {params['optuna']['n_trials']}\n")
+        f.write(f"  Final training epochs: {params['training']['final_epochs']}\n")
+        f.write(f"\nOptimal hyperparameters found:\n")
+        f.write(f"  Hidden size: {best_params['hidden_size']}\n")
+        f.write(f"  Number of layers: {best_params['num_layers']}\n")
+        f.write(f"  Dropout: {best_params['dropout']:.4f}\n")
+        f.write(f"  Optimizer: {best_params['optimizer']}\n")
+        f.write(f"  Learning rate: {best_params['learning_rate']:.6f}\n")
+        f.write(f"  Batch size: {best_params['batch_size']}\n")
+        f.write(f"\nFiles created:\n")
+        f.write(f"  - {model_path}\n")
+        f.write(f"  - {info_path}\n")
+        f.write(f"  - {summary_path}\n")
     
     return model_path, info_path, summary_path
 
 if __name__ == "__main__":
     print("=" * 60)
-    print("CREDIT CARD FRAUD DETECTION - TRAINING PIPELINE")
+    print("CREDIT CARD FRAUD DETECTION - YAML-SYNCED TRAINING PIPELINE")
     print("=" * 60)
     
+    # Load configuration from params.yaml
+    params = load_params()
+    
+    print(f"\nConfiguration loaded:")
+    print(f"  📁 Input size: {params['model']['input_size']}")
+    print(f"  🔄 Sequence length: {params['prepare']['sequence_length']}")
+    print(f"  🎯 Optimization trials: {params['optuna']['n_trials']}")
+    print(f"  ⏱️  Optimization timeout: {params['optuna'].get('timeout', 'None')} seconds")
+    print(f"  🧠 Study name: {params['optuna']['study_name']}")
+    print(f"  📊 MLflow experiment: {params.get('mlflow', {}).get('experiment_name', 'N/A')}")
+    
+    # Setup MLflow
+    mlflow_available = setup_mlflow(params)
+    
     # Load processed data
-    X_train, X_val, y_train, y_val = load_processed_data()
+    X_train, X_val, y_train, y_val = load_processed_data(params)
     
     if X_train is None:
         print("Failed to load data. Please check your data files.")
         sys.exit(1)
     
-    # Create DataLoaders with sequence format
-    sequence_length = 1  # For tabular data, use sequence_length=1
-    train_loader, val_loader = create_dataloaders(
-        X_train, X_val, y_train, y_val, 
-        batch_size=32, 
-        sequence_length=sequence_length
-    )
+    # Create DataLoaders using YAML config
+    train_loader, val_loader = create_dataloaders(X_train, X_val, y_train, y_val, params)
     
-    # Import your training functions AFTER setting up the path
+    # Import training functions
     try:
-        from train import *
-        print("Successfully imported training functions from train.py")
+        from train import create_best_model
+        print("✅ Successfully imported training functions from train.py")
     except Exception as e:
-        print(f"Error importing from train.py: {e}")
-        print("Please make sure your train.py contains the required functions:")
-        print("- run_optuna_optimization")
-        print("- create_best_model")
+        print(f"❌ Error importing from train.py: {e}")
         sys.exit(1)
     
-    # Set parameters
-    input_size = X_train.shape[1]  # Number of features per time step
-    num_classes = 2               # Binary classification
-    n_trials = 10                # Number of optimization trials
-    
-    print(f"\nModel Configuration:")
-    print(f"Input size (features per time step): {input_size}")
-    print(f"Sequence length: {sequence_length}")
-    print(f"Number of classes: {num_classes}")
-    print(f"Device: {torch.device('cuda' if torch.cuda.is_available() else 'cpu')}")
-    print(f"Optimization trials: {n_trials}")
-    
-    print("\nStarting Optuna hyperparameter optimization...")
-    print("This may take a while depending on n_trials...")
-    print("You should see trial progress messages below:")
+    print(f"\nStarting Optuna hyperparameter optimization...")
+    print(f"Configuration from params.yaml:")
+    print(f"  • Trials: {params['optuna']['n_trials']}")
+    print(f"  • Direction: {params['optuna']['direction']}")
+    print(f"  • Study name: {params['optuna']['study_name']}")
+    if 'timeout' in params['optuna']:
+        print(f"  • Timeout: {params['optuna']['timeout']} seconds")
+    print("This may take a while depending on configuration...")
     print("-" * 60)
     
     try:
-        # Call the optimization function - handle different return types
-        result = run_optuna_optimization(
-            train_loader, val_loader, input_size, num_classes, n_trials
-        )
+        # Run optimization with YAML parameters
+        result = run_optuna_optimization_with_params(train_loader, val_loader, params)
         
-        # Handle different return patterns from your train.py
+        # Handle different return patterns
         if isinstance(result, tuple):
             if len(result) == 2:
                 best_params, study = result
-                if hasattr(study, 'best_value'):
-                    best_value = study.best_value
-                else:
-                    best_value = max([trial.value for trial in study.trials if trial.value is not None])
-            elif len(result) == 3:
-                best_params, study, best_value = result
+                best_value = study.best_value if hasattr(study, 'best_value') else 0.0
             else:
-                print(f"Unexpected return format from run_optuna_optimization: {len(result)} values")
                 best_params = result[0]
                 study = result[1] if len(result) > 1 else None
                 best_value = result[2] if len(result) > 2 else 0.0
-        
         elif hasattr(result, 'best_params'):
-            # If result is a study object
             study = result
             best_params = study.best_params
             best_value = study.best_value
-        
         else:
-            # If result is just best_params (fallback)
             best_params = result
             study = None
             best_value = 0.0
-            print("Warning: Could not determine best validation accuracy")
         
         print("\n" + "=" * 60)
-        print("🎉 OPTIMIZATION COMPLETED SUCCESSFULLY! 🎉")
+        print("🎉 YAML-CONFIGURED OPTIMIZATION COMPLETED! 🎉")
         print("=" * 60)
         print(f"Best validation accuracy: {best_value:.4f} ({best_value:.2%})")
+        print(f"Configuration used: {params['optuna']['study_name']}")
+        print(f"Trials completed: {params['optuna']['n_trials']}")
+        
         print("\nOptimal hyperparameters found:")
         print("-" * 30)
         for key, value in best_params.items():
@@ -248,86 +417,50 @@ if __name__ == "__main__":
             else:
                 print(f"  {key:15}: {value}")
         
-        # Create final model with best parameters
-        print(f"\nCreating final model with optimal parameters...")
-        try:
-            best_model = create_best_model(best_params, input_size, num_classes)
-            print("✅ Model created successfully!")
-        except Exception as e:
-            print(f"❌ Error creating model: {e}")
-            print("This might be due to missing create_best_model function")
-            sys.exit(1)
+        # Validate hyperparameters against YAML constraints
+        if 'hyperparameters' in params['optuna']:
+            print(f"\nValidating against params.yaml constraints:")
+            hp_config = params['optuna']['hyperparameters']
+            
+            for param, value in best_params.items():
+                if param in hp_config:
+                    config = hp_config[param]
+                    if config['type'] == 'int' and 'low' in config and 'high' in config:
+                        if config['low'] <= value <= config['high']:
+                            print(f"  ✅ {param}: {value} (within {config['low']}-{config['high']})")
+                        else:
+                            print(f"  ⚠️  {param}: {value} (outside {config['low']}-{config['high']})")
         
-        # Save model and metadata
-        try:
-            model_path, info_path, summary_path = save_model_and_info(
-                best_model, best_params, best_value, input_size, num_classes, sequence_length
-            )
-            
-            print("✅ Model and metadata saved successfully!")
-            print(f"\nFiles created:")
-            print(f"  📁 Model weights: {model_path}")
-            print(f"  📄 Model info:    {info_path}")
-            print(f"  📋 Summary:       {summary_path}")
-            
-        except Exception as e:
-            print(f"❌ Error saving model: {e}")
-            traceback.print_exc()
+        # Create final model
+        print(f"\nCreating final model with YAML-validated parameters...")
+        best_model = create_best_model(best_params, params['model']['input_size'], params['model']['num_classes'])
+        
+        # Save model with YAML configuration
+        model_path, info_path, summary_path = save_model_and_info(best_model, best_params, best_value, params)
+        
+        print("✅ Model and YAML-synced metadata saved!")
         
         # Final success message
         print("\n" + "=" * 60)
-        print("🚀 TRAINING PIPELINE COMPLETED SUCCESSFULLY! 🚀")
+        print("🚀 YAML-SYNCED TRAINING PIPELINE COMPLETED! 🚀")
         print("=" * 60)
-        print(f"🎯 Your fraud detection model achieved: {best_value:.2%} validation accuracy")
-        print("\nWhat this means:")
-        if best_value > 0.98:
-            print("🌟 EXCELLENT! Your model has very high accuracy")
-        elif best_value > 0.95:
-            print("✅ GOOD! Your model performs well")
-        else:
-            print("⚠️  MODERATE: Consider more trials or feature engineering")
-            
-        print(f"\nFor fraud detection:")
-        print(f"  • {best_value:.2%} of transactions classified correctly")
-        print(f"  • Model can distinguish between normal and fraudulent transactions")
+        print(f"🎯 Accuracy achieved: {best_value:.2%}")
+        print(f"📋 Used configuration: params.yaml")
+        print(f"🔬 Study: {params['optuna']['study_name']}")
+        print(f"📊 MLflow: {'✅ Enabled' if mlflow_available else '❌ Disabled'}")
+        
+        print(f"\nFiles created (YAML-compatible):")
+        print(f"  📁 Model: {model_path}")
+        print(f"  📄 Info: {info_path}")
+        print(f"  📋 Summary: {summary_path}")
         
         print(f"\nNext steps:")
         print(f"  1. Run evaluation: python src/evaluate.py")
-        print(f"  2. Check detailed results in: {info_path}")
-        print(f"  3. View model summary in: {summary_path}")
-        
-        if study and hasattr(study, 'trials'):
-            print(f"\nOptimization summary:")
-            print(f"  • Completed trials: {len([t for t in study.trials if t.state.name == 'COMPLETE'])}")
-            print(f"  • Failed trials: {len([t for t in study.trials if t.state.name == 'FAIL'])}")
-            print(f"  • Best trial: #{study.best_trial.number}")
-        
-    except KeyboardInterrupt:
-        print("\n\n⚠️ Training interrupted by user (Ctrl+C)")
-        print("Partial results may be available in MLflow if logging was enabled")
+        print(f"  2. Use DVC pipeline: dvc repro")
+        print(f"  3. Check MLflow UI: mlflow ui")
         
     except Exception as e:
-        print(f"\n❌ ERROR DURING TRAINING: {e}")
-        print("\nDetailed error information:")
+        print(f"\n❌ ERROR: {e}")
         traceback.print_exc()
-        
-        print(f"\nTroubleshooting steps:")
-        print(f"1. Check that your train.py contains these functions:")
-        print(f"   - run_optuna_optimization")
-        print(f"   - create_best_model") 
-        print(f"2. Verify MLflow credentials are correct")
-        print(f"3. Ensure all dependencies are installed")
-        print(f"4. Check GPU memory if using CUDA")
-        
-        # Try to show available functions for debugging
-        try:
-            available_functions = [name for name in dir() if callable(getattr(sys.modules[__name__], name, None)) and not name.startswith('_')]
-            training_functions = [f for f in available_functions if any(keyword in f.lower() for keyword in ['train', 'optuna', 'model', 'optimize'])]
-            if training_functions:
-                print(f"\nAvailable training functions found:")
-                for func in training_functions:
-                    print(f"  - {func}")
-        except:
-            pass
     
     print("=" * 60)
