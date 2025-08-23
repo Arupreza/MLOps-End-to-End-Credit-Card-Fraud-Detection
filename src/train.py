@@ -20,9 +20,9 @@ import optuna
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f"Using device: {device}")
 
-os.environ['MLFLOW_TRACKING_URI'] = 'https://dagshub.com/Arupreza/basic_ml_pipeline.mlflow'
-os.environ['MLFLOW_TRACKING_NAME'] = 'Arupreza'
-os.environ['MLFLOW_TRACKING_PASSWORD'] = '0531a59c013804c71d1476a0ee381da8cd70f3e1'
+os.environ['MLFLOW_TRACKING_URI'] = "https://dagshub.com/Arupreza/MlOps_End_to_End.mlflow"
+os.environ['MLFLOW_TRACKING_NAME'] = "Arupreza"
+os.environ['MLFLOW_TRACKING_PASSWORD'] = "0531a59c013804c71d1476a0ee381da8cd70f3e1"
 
 class CreditCardGRU(nn.Module):
     def __init__(self, input_size, hidden_size, num_layers, num_classes, dropout=0.5):
