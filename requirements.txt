@@ -8,3 +8,4 @@ dvc-s3
 dagshub
 torch
 torchvision
+optuna
