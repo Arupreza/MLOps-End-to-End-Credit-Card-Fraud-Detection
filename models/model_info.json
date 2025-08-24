@@ -2,29 +2,30 @@
   "model_path": "models/best_fraud_detection_model.pth",
   "model_architecture": {
     "input_size": 12,
-    "hidden_size": 256,
-    "num_layers": 1,
+    "hidden_size": 128,
+    "num_layers": 3,
     "num_classes": 2,
-    "dropout": 0.2672742807743437
+    "dropout": 0.34553579440525706
   },
   "best_params": {
-    "hidden_size": 256,
-    "num_layers": 1,
-    "dropout": 0.2672742807743437,
-    "learning_rate": 0.00011122021231823562,
-    "batch_size": 16,
-    "optimizer": "Adam"
+    "hidden_size": 128,
+    "num_layers": 3,
+    "dropout": 0.34553579440525706,
+    "learning_rate": 0.00027585871145295864,
+    "batch_size": 32,
+    "num_epochs": 44,
+    "optimizer": "RMSprop"
   },
   "performance": {
-    "best_validation_accuracy": 0.0,
-    "accuracy_percentage": "0.00%"
+    "best_validation_accuracy": 0.982048636352977,
+    "accuracy_percentage": "98.20%"
   },
   "training_config": {
     "sequence_length": 10,
-    "optimizer": "Adam",
-    "learning_rate": 0.00011122021231823562,
-    "batch_size": 16,
-    "n_trials_completed": 20,
+    "optimizer": "RMSprop",
+    "learning_rate": 0.00027585871145295864,
+    "batch_size": 32,
+    "n_trials_completed": 10,
     "final_epochs": 50,
     "early_stopping_patience": 15
   },
@@ -40,7 +41,7 @@
         "num_classes": 2
       },
       "optuna": {
-        "n_trials": 20,
+        "n_trials": 10,
         "timeout": 3600,
         "study_name": "gru_fraud_detection",
         "direction": "maximize",
@@ -93,7 +94,7 @@
     }
   },
   "metadata": {
-    "timestamp": "2025-08-24T05:37:12.204592",
+    "timestamp": "2025-08-24T13:55:20.191444",
     "framework": "PyTorch",
     "model_type": "GRU",
     "task": "Credit Card Fraud Detection",
