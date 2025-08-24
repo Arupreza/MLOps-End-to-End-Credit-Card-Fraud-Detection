@@ -31,6 +31,7 @@ This repository implements a complete end-to-end machine learning operations (ML
 
 ## 🏗️ Architecture
 
+```mermaid
 graph LR
     A[Raw Data] --> B[Data Processing]
     B --> C[Feature Engineering]
@@ -41,6 +42,7 @@ graph LR
     
     style A fill:#f9f,stroke:#333,stroke-width:2px
     style G fill:#9f9,stroke:#333,stroke-width:2px
+```
 
 **Backbones**:
 - **DVC** for data/pipeline versioning
