@@ -36,6 +36,16 @@ os.environ['MLFLOW_TRACKING_PASSWORD'] = "0531a59c013804c71d1476a0ee381da8cd70f3
 # Set MLflow tracking URI
 mlflow.set_tracking_uri(os.environ['MLFLOW_TRACKING_URI'])
 
+import shutil  # NEW
+
+def get_feature_schema(train_csv="Data/processed/creditcard_processed_train.csv", label_col_guess="Class"):
+    """Read one row to capture the training feature order and label column."""
+    df = pd.read_csv(train_csv, nrows=1)
+    label_col = label_col_guess if label_col_guess in df.columns else df.columns[-1]
+    feature_names = [c for c in df.columns if c != label_col]
+    return feature_names, label_col
+
+
 class CreditCardGRU(nn.Module):
     def __init__(self, input_size, hidden_size, num_layers, num_classes, dropout=0.5):
         """
@@ -517,22 +527,42 @@ def run_optuna_optimization(train_loader, val_loader, input_size, num_classes, n
         
         return study.best_params, study
 
-def save_final_model_with_dvc(model, best_params, study, experiment_name):
+def save_final_model_with_dvc(model, best_params, study, experiment_name,
+                              input_size, num_classes, feature_names, label_col):
     os.makedirs("models", exist_ok=True)
+
     model_path = f"models/{experiment_name}_best.pth"
     torch.save(model.state_dict(), model_path)
 
+    run_id = mlflow.active_run().info.run_id if mlflow.active_run() else None
     meta = {
         "best_params": best_params,
         "best_trial_number": study.best_trial.number,
         "best_val_accuracy": study.best_value,
         "experiment_name": experiment_name,
+        "mlflow_run_id": run_id,
+        "num_classes": int(num_classes),
+        "input_size": int(input_size),
+        "feature_names": list(feature_names),
+        "label_col": label_col,
         "saved_at": datetime.now().isoformat()
     }
+
+    # Write experiment-scoped json
     with open(f"models/{experiment_name}_best.json", "w") as f:
         json.dump(meta, f, indent=2)
 
-    # Optional: also log artifacts to MLflow if a run is active
+    # Write generic info file the evaluator prefers
+    with open("models/model_info.json", "w") as f:
+        json.dump(meta, f, indent=2)
+
+    # Provide a stable alias for the evaluator
+    try:
+        shutil.copyfile(model_path, "models/best_fraud_detection_model.pth")
+    except Exception as e:
+        logger.warning(f"Could not create alias best_fraud_detection_model.pth: {e}")
+
+    # Optional: log artifacts to MLflow
     try:
         mlflow.log_artifact(model_path, artifact_path="final_model")
         mlflow.log_text(json.dumps(meta, indent=2), artifact_file="final_model/metadata.json")
@@ -541,28 +571,37 @@ def save_final_model_with_dvc(model, best_params, study, experiment_name):
 
 
 # FIXED: Actually run the training when script is executed
+# FIXED: Actually run the training when script is executed
 if __name__ == "__main__":
     logger.info("🚀 STARTING CREDIT CARD FRAUD DETECTION TRAINING")
     logger.info("="*70)
-    
+
     try:
         # Load data loaders
         train_loader, val_loader, input_size = load_data_loaders()
-        
+
         num_classes = 2  # Binary classification
         experiment_name = "credit_card_gru_fraud_detection_fixed"
-        n_trials = 15  # Start with fewer trials for testing
-        
+        n_trials = 5  # Start with fewer trials for testing
+
+        # Capture the EXACT training schema (order matters!)
+        feature_names, label_col = get_feature_schema(
+            train_csv="Data/processed/creditcard_processed_train.csv",
+            label_col_guess="Class"
+        )
+
         logger.info(f"Input size: {input_size}")
         logger.info(f"Number of classes: {num_classes}")
         logger.info(f"Number of trials: {n_trials}")
-        
-        # Run optimization with MLflow and DVC integration
+        logger.info(f"Label column: {label_col}")
+        logger.info(f"First 5 features: {feature_names[:5]}")
+
+        # Run optimization with MLflow
         best_params, study = run_optuna_optimization(
-            train_loader, val_loader, input_size, num_classes, 
+            train_loader, val_loader, input_size, num_classes,
             n_trials=n_trials, experiment_name=experiment_name
         )
-        
+
         # Create and save best model
         best_model = CreditCardGRU(
             input_size=input_size,
@@ -571,19 +610,26 @@ if __name__ == "__main__":
             num_classes=num_classes,
             dropout=best_params['dropout']
         )
-        
+
         # Load the best model weights
         best_trial_dir = f"optuna_artifacts/trial_{study.best_trial.number}"
-        if os.path.exists(f"{best_trial_dir}/model_state_dict.pth"):
-            best_model.load_state_dict(torch.load(f"{best_trial_dir}/model_state_dict.pth"))
+        best_state_path = f"{best_trial_dir}/model_state_dict.pth"
+        if os.path.exists(best_state_path):
+            best_model.load_state_dict(torch.load(best_state_path, map_location="cpu"))
             logger.info(f"Loaded best model weights from trial {study.best_trial.number}")
-        
-        # Save final model with DVC integration
-        save_final_model_with_dvc(best_model, best_params, study, experiment_name)
-        
+        else:
+            logger.warning(f"Best trial weights not found at {best_state_path}. Saving current model params instead.")
+
+        # Save final model + metadata (schema included!)
+        save_final_model_with_dvc(
+            best_model, best_params, study, experiment_name,
+            input_size=input_size, num_classes=num_classes,
+            feature_names=feature_names, label_col=label_col
+        )
+
         print("\n🎉 TRAINING COMPLETED SUCCESSFULLY!")
         print("You can now run evaluation with: python src/evaluate.py")
-        
+
     except Exception as e:
         logger.error(f"Training failed: {e}")
         import traceback

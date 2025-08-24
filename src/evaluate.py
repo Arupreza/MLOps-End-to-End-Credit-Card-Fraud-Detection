@@ -1,20 +1,17 @@
 #!/usr/bin/env python3
 """
-Evaluation script for CreditCardGRU with full MLflow logging.
+Evaluation script for CreditCardGRU with full MLflow logging, feature-schema alignment,
+BatchNorm/LayerNorm checkpoint compatibility, and positive-class auto-detection.
 
-Usage:
-  python src/evaluate.py
+Run:
+    python src/evaluate.py
 
 Auto-discovers:
-  - CSV:  Data/processed/creditcard_processed_test.csv (fallback: _val, _train)
-  - Model: models/best_fraud_detection_model.pth (fallback: any .pth in models/)
-  - HParams: models/model_info.json (fallback: optuna_study/study_results.json)
+    - CSV:   Data/processed/creditcard_processed_test.csv (fallback: _val, _train)
+    - Model: models/best_fraud_detection_model.pth (fallback: first .pth in models/)
+    - Meta:  models/model_info.json (fallback: optuna_study/study_results.json)
 
-Logs to MLflow:
-  - metrics (argmax metrics + optional threshold-sweep metrics)
-  - confusion matrix, ROC, PR plots
-  - predictions.csv, metrics.json, classification_report.txt
-  - tags linking to source training run if available
+Artifacts saved to reports/eval/<timestamp>/ and logged to MLflow (MLFLOW_TRACKING_URI or ./mlruns).
 """
 
 import os
@@ -37,19 +34,22 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 import mlflow
-from mlflow import MlflowClient
 
 
-# ----------------------------
-# Model (must match training)
-# ----------------------------
+# =========================
+# Model (BN/LN flexible)
+# =========================
 class CreditCardGRU(nn.Module):
-    def __init__(self, input_size, hidden_size, num_layers, num_classes, dropout=0.5):
+    def __init__(self, input_size, hidden_size, num_layers, num_classes, dropout=0.5, norm_type="layer"):
+        """
+        norm_type: "batch" | "layer" | "none"
+        """
         super(CreditCardGRU, self).__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.num_layers = num_layers
         self.num_classes = num_classes
+        self.norm_type = norm_type
 
         self.input_projection = nn.Linear(input_size, hidden_size)
         nn.init.xavier_uniform_(self.input_projection.weight)
@@ -78,8 +78,17 @@ class CreditCardGRU(nn.Module):
         nn.init.xavier_uniform_(self.fc3.weight)
 
         self.relu = nn.ReLU()
-        self.ln1 = nn.LayerNorm(hidden_size // 2)
-        self.ln2 = nn.LayerNorm(hidden_size // 4)
+
+        # Instantiate normalization modules with names matching checkpoints
+        if norm_type == "batch":
+            self.bn1 = nn.BatchNorm1d(hidden_size // 2)
+            self.bn2 = nn.BatchNorm1d(hidden_size // 4)
+        elif norm_type == "layer":
+            self.ln1 = nn.LayerNorm(hidden_size // 2)
+            self.ln2 = nn.LayerNorm(hidden_size // 4)
+        else:
+            self.n1 = nn.Identity()
+            self.n2 = nn.Identity()
 
     def forward(self, x):
         # x: (N, seq_len, input_size); seq_len=1 in this pipeline
@@ -87,19 +96,37 @@ class CreditCardGRU(nn.Module):
         x = self.input_projection(x)
         x = self.relu(x)
 
-        h0 = torch.zeros(self.num_layers, batch_size, self.hidden_size).to(x.device)
+        h0 = torch.zeros(self.num_layers, batch_size, self.hidden_size, device=x.device)
         out, _ = self.gru(x, h0)
         last = out[:, -1, :]
 
-        z = self.fc1(last); z = self.ln1(z); z = self.relu(z); z = self.dropout(z)
-        z = self.fc2(z); z = self.ln2(z); z = self.relu(z); z = self.dropout(z)
+        z = self.fc1(last)
+        if self.norm_type == "batch":
+            z = self.bn1(z)
+        elif self.norm_type == "layer":
+            z = self.ln1(z)
+        else:
+            z = self.n1(z)
+        z = self.relu(z)
+        z = self.dropout(z)
+
+        z = self.fc2(z)
+        if self.norm_type == "batch":
+            z = self.bn2(z)
+        elif self.norm_type == "layer":
+            z = self.ln2(z)
+        else:
+            z = self.n2(z)
+        z = self.relu(z)
+        z = self.dropout(z)
+
         z = self.fc3(z)  # logits
         return z
 
 
-# ----------------------------
+# =========================
 # Helpers
-# ----------------------------
+# =========================
 def _first_existing(*paths):
     for p in paths:
         if p and os.path.exists(p):
@@ -108,17 +135,15 @@ def _first_existing(*paths):
 
 
 def resolve_defaults():
-    """Resolve default paths from your repo layout."""
-    # CSVs: prefer test → val → train
+    """Find test CSV, model checkpoint, and meta/study files from your layout."""
     test_csv = _first_existing(
         "Data/processed/creditcard_processed_test.csv",
         "Data/processed/creditcard_processed_val.csv",
         "Data/processed/creditcard_processed_train.csv",
     )
     if not test_csv:
-        raise FileNotFoundError("Could not find any dataset at Data/processed/creditcard_processed_{test,val,train}.csv")
+        raise FileNotFoundError("Could not find Data/processed/creditcard_processed_{test,val,train}.csv")
 
-    # Model checkpoint
     model_path = _first_existing("models/best_fraud_detection_model.pth")
     if not model_path and os.path.isdir("models"):
         for name in os.listdir("models"):
@@ -126,11 +151,10 @@ def resolve_defaults():
                 model_path = os.path.join("models", name)
                 break
     if not model_path:
-        raise FileNotFoundError("No model .pth found under models/. Expected models/best_fraud_detection_model.pth")
+        raise FileNotFoundError("No model .pth found under models/")
 
-    # Metadata / hparams
     meta_json = _first_existing(
-        "models/model_info.json",                         # **present in your tree**
+        "models/model_info.json",
         "models/credit_card_gru_fraud_detection_fixed_best.json",
     )
     study_json = _first_existing("optuna_study/study_results.json")
@@ -146,7 +170,8 @@ def parse_hparams_from_meta(meta):
         "num_layers":  ["num_layers", "n_layers", "layers"],
         "dropout":     ["dropout", "dropout_rate", "p_drop"],
         "num_classes": ["num_classes", "n_classes"],
-        "experiment_name": ["experiment_name", "exp_name"]
+        "experiment_name": ["experiment_name", "exp_name"],
+        "mlflow_run_id": ["mlflow_run_id", "run_id"]
     }
     out = {}
     for k, alts in keymap.items():
@@ -154,9 +179,16 @@ def parse_hparams_from_meta(meta):
             if a in hp:
                 out[k] = hp[a]
                 break
-        # allow some keys to come from the top-level meta
+        # also allow top-level keys
         if k not in out and k in meta:
             out[k] = meta[k]
+
+    # Bubble through optional schema info
+    if "feature_names" in meta:
+        out["feature_names"] = meta["feature_names"]
+    if "label_col" in meta:
+        out["label_col"] = meta["label_col"]
+
     return out
 
 
@@ -164,8 +196,8 @@ def load_best_hparams(meta_json, study_json):
     """
     Load best hyperparameters.
     Priority:
-        1) models/model_info.json (preferred)
-        2) optuna_study/study_results.json (best_params)
+        1) models/model_info.json
+        2) optuna_study/study_results.json
     """
     if meta_json:
         with open(meta_json, "r") as f:
@@ -178,7 +210,9 @@ def load_best_hparams(meta_json, study_json):
                 "dropout": float(out["dropout"]),
                 "num_classes": int(out.get("num_classes", 2)),
                 "experiment_name": out.get("experiment_name", "fraud_detection_evaluation"),
-                "source_run_id": meta.get("mlflow_run_id") or out.get("mlflow_run_id")
+                "source_run_id": out.get("mlflow_run_id"),
+                "feature_names": out.get("feature_names"),
+                "label_col": out.get("label_col")
             }
 
     if study_json:
@@ -192,7 +226,9 @@ def load_best_hparams(meta_json, study_json):
                 "dropout": float(bp["dropout"]),
                 "num_classes": int(bp.get("num_classes", 2)),
                 "experiment_name": "fraud_detection_evaluation",
-                "source_run_id": None
+                "source_run_id": None,
+                "feature_names": None,
+                "label_col": None
             }
 
     raise RuntimeError(
@@ -211,53 +247,104 @@ def softmax(x):
     return torch.softmax(x, dim=1)
 
 
-def log_plot_to_mlflow(fig, artifact_file):
-    """Log a Matplotlib figure to MLflow and also save it to the local out_dir."""
-    mlflow.log_figure(fig, artifact_file)
+def _coerce_state_dict(obj):
+    """
+    Accept common checkpoint formats:
+        - pure state_dict (key->tensor)
+        - {'state_dict': ...} or {'model_state_dict': ...}
+        - full nn.Module saved -> extract .state_dict()
+    """
+    if isinstance(obj, nn.Module):
+        return obj.state_dict()
+    if isinstance(obj, dict):
+        if "state_dict" in obj and isinstance(obj["state_dict"], dict):
+            return obj["state_dict"]
+        if "model_state_dict" in obj and isinstance(obj["model_state_dict"], dict):
+            return obj["model_state_dict"]
+        # Heuristic: treat as state_dict if values look like tensors
+        if all(isinstance(v, (torch.Tensor, np.ndarray, float, int, bool)) or hasattr(v, "shape") for v in obj.values()):
+            return obj
+    raise ValueError("Unrecognized checkpoint format; expected a state_dict or a dict with 'state_dict'.")
 
 
-# ----------------------------
-# Evaluation core (with MLflow)
-# ----------------------------
+def _detect_norm_type_from_state(state_dict):
+    keys = list(state_dict.keys())
+    if any(k.startswith("bn1.") or k.startswith("bn2.") for k in keys):
+        return "batch"
+    if any(k.startswith("ln1.") or k.startswith("ln2.") for k in keys):
+        return "layer"
+    return "none"
+
+
+# =========================
+# Main Evaluation
+# =========================
 def main():
-    # 0) Configure MLflow tracking
+    # Configure MLflow (use env URI or local)
     tracking_uri = os.environ.get("MLFLOW_TRACKING_URI", "file:./mlruns")
     mlflow.set_tracking_uri(tracking_uri)
 
-    # 1) Discover inputs & hyperparameters
+    # Discover inputs / hparams
     test_csv, model_path, meta_json, study_json = resolve_defaults()
     hp = load_best_hparams(meta_json, study_json)
     exp_name = hp.get("experiment_name") or "fraud_detection_evaluation"
+    mlflow.set_experiment(exp_name)
 
-    # 2) Prepare output dir
     out_dir = ensure_out_dir()
 
-    # 3) Data
+    # --- Data ---
     df = pd.read_csv(test_csv)
-    label_col = "Class" if "Class" in df.columns else df.columns[-1]
+
+    # Use saved label name if provided
+    label_col = hp.get("label_col") or ("Class" if "Class" in df.columns else df.columns[-1])
+
+    # Align features to training order if available
+    feat_names = hp.get("feature_names")
+    diag = {}  # diagnostics we will save later
+
+    if feat_names:
+        missing = [c for c in feat_names if c not in df.columns]
+        extra = [c for c in df.columns if c not in (feat_names + [label_col])]
+        diag["feature_mismatch"] = {"missing": missing, "extra": extra}
+        if missing:
+            raise ValueError(
+                f"Missing features in test CSV: {missing}\n"
+                f"Extra columns present: {extra}\n"
+                f"Expected order (first 10): {feat_names[:10]}"
+            )
+        X = df[feat_names].values.astype(np.float32)
+    else:
+        # Fallback: best-effort (may cause silent degradation if order differs)
+        X = df.drop(columns=[label_col]).values.astype(np.float32)
+
     y_true = df[label_col].astype(int).values
-    X = df.drop(columns=[label_col]).values.astype(np.float32)
     input_size = X.shape[1]
 
     X_tensor = torch.from_numpy(X).unsqueeze(1)  # (N, 1, input_size)
     y_tensor = torch.from_numpy(y_true).long()
     loader = DataLoader(TensorDataset(X_tensor, y_tensor), batch_size=2048, shuffle=False, num_workers=0)
 
-    # 4) Model
+    # Checkpoint
+    raw_obj = torch.load(model_path, map_location="cpu")
+    state = _coerce_state_dict(raw_obj)
+    norm_type = _detect_norm_type_from_state(state)
+
+    # Model
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model = CreditCardGRU(
         input_size=input_size,
         hidden_size=hp["hidden_size"],
         num_layers=hp["num_layers"],
         num_classes=hp["num_classes"],
-        dropout=hp["dropout"]
+        dropout=hp["dropout"],
+        norm_type=norm_type
     ).to(device)
 
-    state = torch.load(model_path, map_location=device)
-    model.load_state_dict(state)
+    # Load weights strictly (keys match because we created bn*/ln* accordingly)
+    model.load_state_dict(state, strict=True)
     model.eval()
 
-    # 5) Inference
+    # Inference
     all_logits, all_preds = [], []
     with torch.no_grad():
         for xb, _ in loader:
@@ -269,9 +356,29 @@ def main():
     logits = torch.cat(all_logits, dim=0)           # (N, C)
     y_pred = torch.cat(all_preds, dim=0).numpy()    # (N,)
     probs = softmax(logits).numpy()
-    pos_proba = probs[:, 1] if hp["num_classes"] == 2 else None
 
-    # 6) Metrics (argmax operating point)
+    # --- Auto-detect which column is "positive" (higher AUC) ---
+    pos_index = 1
+    roc_ok = hp["num_classes"] == 2 and len(np.unique(y_true)) == 2
+    auc_col1 = auc_col0 = None
+    if roc_ok:
+        try:
+            auc_col1 = float(roc_auc_score(y_true, probs[:, 1]))
+        except Exception:
+            pass
+        try:
+            auc_col0 = float(roc_auc_score(y_true, probs[:, 0]))
+        except Exception:
+            pass
+        if auc_col0 is not None and (auc_col1 is None or auc_col0 > auc_col1):
+            pos_index = 0
+
+    pos_proba = probs[:, pos_index] if hp["num_classes"] == 2 else None
+    diag["auc_col0"] = auc_col0
+    diag["auc_col1"] = auc_col1
+    diag["chosen_pos_index"] = pos_index
+
+    # Metrics at argmax
     metrics_argmax = {
         "accuracy":            float(accuracy_score(y_true, y_pred)),
         "precision_weighted":  float(precision_score(y_true, y_pred, average="weighted", zero_division=0)),
@@ -284,25 +391,20 @@ def main():
         "support_neg":         int((y_true == 0).sum()),
     }
 
-    roc_auc = ap = None
     if hp["num_classes"] == 2 and len(np.unique(y_true)) == 2 and pos_proba is not None:
         try:
-            roc_auc = float(roc_auc_score(y_true, pos_proba))
+            metrics_argmax["roc_auc"] = float(roc_auc_score(y_true, pos_proba))
         except Exception:
-            roc_auc = None
+            pass
         try:
-            ap = float(average_precision_score(y_true, pos_proba))
+            metrics_argmax["average_precision"] = float(average_precision_score(y_true, pos_proba))
         except Exception:
-            ap = None
-        if roc_auc is not None:
-            metrics_argmax["roc_auc"] = roc_auc
-        if ap is not None:
-            metrics_argmax["average_precision"] = ap
+            pass
 
     cls_report = classification_report(y_true, y_pred, digits=4, zero_division=0)
     cm = confusion_matrix(y_true, y_pred, labels=list(range(hp["num_classes"])))
 
-    # 7) Optional: threshold sweep (binary) to maximize F1
+    # Threshold sweep (binary) to maximize F1
     metrics_thresh = {}
     best_thresh = None
     if hp["num_classes"] == 2 and pos_proba is not None and len(np.unique(y_true)) == 2:
@@ -327,23 +429,24 @@ def main():
             "recall_at_best_threshold": float(best_row["recall"]),
             "accuracy_at_best_threshold": float(best_row["accuracy"]),
         }
-        # save sweep
-        sweep_path = os.path.join(out_dir, "threshold_sweep.csv")
-        sweep_df.to_csv(sweep_path, index=False)
+        sweep_df.to_csv(os.path.join(out_dir, "threshold_sweep.csv"), index=False)
 
-    # 8) Save local artifacts
-    # metrics.json packs both argmax and threshold metrics
+    # Save local artifacts
     bundle = {
         "dataset": os.path.abspath(test_csv),
         "model_checkpoint": os.path.abspath(model_path),
         "device": device,
         "input_size": int(input_size),
+        "norm_type": norm_type,
         "hparams": {
             "hidden_size": int(hp["hidden_size"]),
             "num_layers": int(hp["num_layers"]),
             "dropout": float(hp["dropout"]),
-            "num_classes": int(hp["num_classes"])
+            "num_classes": int(hp["num_classes"]),
+            "label_col": label_col,
+            "feature_names_used": feat_names if feat_names else "auto(drop-cols)"
         },
+        "diagnostics": diag,
         "metrics_argmax": metrics_argmax,
         "metrics_threshold_sweep": metrics_thresh
     }
@@ -361,8 +464,8 @@ def main():
     pred_csv_path = os.path.join(out_dir, "predictions.csv")
     pred_df.to_csv(pred_csv_path, index=False)
 
-    # Confusion matrix (argmax)
-    fig = plt.figure(figsize=(5, 4))
+    # Confusion matrix
+    plt.figure(figsize=(5, 4))
     sns.heatmap(cm, annot=True, fmt="d", cbar=True,
                 xticklabels=list(range(hp["num_classes"])),
                 yticklabels=list(range(hp["num_classes"])))
@@ -372,7 +475,7 @@ def main():
     plt.tight_layout()
     cm_path = os.path.join(out_dir, "confusion_matrix.png")
     plt.savefig(cm_path, dpi=200)
-    plt.close(fig)
+    plt.close()
 
     # ROC / PR (binary)
     roc_path = pr_path = None
@@ -380,7 +483,7 @@ def main():
         fpr, tpr, _ = roc_curve(y_true, pos_proba)
         precision, recall, _ = precision_recall_curve(y_true, pos_proba)
 
-        fig = plt.figure(figsize=(5, 4))
+        plt.figure(figsize=(5, 4))
         plt.plot(fpr, tpr, lw=2)
         plt.plot([0, 1], [0, 1], linestyle="--", lw=1)
         plt.xlabel("False Positive Rate")
@@ -389,9 +492,9 @@ def main():
         plt.tight_layout()
         roc_path = os.path.join(out_dir, "roc_curve.png")
         plt.savefig(roc_path, dpi=200)
-        plt.close(fig)
+        plt.close()
 
-        fig = plt.figure(figsize=(5, 4))
+        plt.figure(figsize=(5, 4))
         plt.plot(recall, precision, lw=2)
         plt.xlabel("Recall")
         plt.ylabel("Precision")
@@ -399,18 +502,16 @@ def main():
         plt.tight_layout()
         pr_path = os.path.join(out_dir, "pr_curve.png")
         plt.savefig(pr_path, dpi=200)
-        plt.close(fig)
+        plt.close()
 
-    # 9) MLflow logging
-    mlflow.set_experiment(exp_name)
+    # MLflow logging
     with mlflow.start_run(run_name=f"evaluation_{datetime.now().strftime('%Y%m%d_%H%M%S')}") as run:
-        # Link back to source training run if present
         if hp.get("source_run_id"):
             mlflow.set_tag("source_run_id", hp["source_run_id"])
         mlflow.set_tag("phase", "evaluation")
         mlflow.set_tag("dataset", os.path.basename(test_csv))
+        mlflow.set_tag("norm_type", norm_type)
 
-        # Params
         mlflow.log_params({
             "input_size": input_size,
             "hidden_size": hp["hidden_size"],
@@ -421,12 +522,10 @@ def main():
             "checkpoint": os.path.basename(model_path)
         })
 
-        # Metrics
         mlflow.log_metrics(metrics_argmax)
         if metrics_thresh:
             mlflow.log_metrics({f"thresh_{k}": v for k, v in metrics_thresh.items()})
 
-        # Artifacts
         mlflow.log_artifact(os.path.join(out_dir, "metrics.json"), artifact_path="evaluation")
         mlflow.log_artifact(os.path.join(out_dir, "classification_report.txt"), artifact_path="evaluation")
         mlflow.log_artifact(pred_csv_path, artifact_path="evaluation")
@@ -438,13 +537,13 @@ def main():
         if hp["num_classes"] == 2 and best_thresh is not None:
             mlflow.log_artifact(os.path.join(out_dir, "threshold_sweep.csv"), artifact_path="evaluation")
 
-        # Print a short summary to console
+        # Console summary
         print("\n" + "=" * 66)
         print(" M L f l o w   E V A L U A T I O N   S U M M A R Y")
         print("=" * 66)
         print(f"Run ID:     {run.info.run_id}")
-        print(f"Experiment: {exp_name}")
-        print(f"Tracking:   {tracking_uri}")
+        print(f"Experiment: {mlflow.get_experiment(run.info.experiment_id).name}")
+        print(f"Tracking:   {mlflow.get_tracking_uri()}")
         print(f"Dataset:    {test_csv}")
         print(f"Model:      {model_path}")
         print(f"Saved to:   {out_dir}\n")

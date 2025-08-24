@@ -1,103 +1,28 @@
 {
-  "model_path": "models/best_fraud_detection_model.pth",
-  "model_architecture": {
-    "input_size": 12,
-    "hidden_size": 128,
-    "num_layers": 3,
-    "num_classes": 2,
-    "dropout": 0.34553579440525706
-  },
   "best_params": {
-    "hidden_size": 128,
-    "num_layers": 3,
-    "dropout": 0.34553579440525706,
-    "learning_rate": 0.00027585871145295864,
-    "batch_size": 32,
-    "num_epochs": 44,
+    "hidden_size": 256,
+    "num_layers": 2,
+    "dropout": 0.45760831318272044,
+    "learning_rate": 0.00027362019097082024,
+    "batch_size": 64,
+    "num_epochs": 39,
     "optimizer": "RMSprop"
   },
-  "performance": {
-    "best_validation_accuracy": 0.982048636352977,
-    "accuracy_percentage": "98.20%"
-  },
-  "training_config": {
-    "sequence_length": 10,
-    "optimizer": "RMSprop",
-    "learning_rate": 0.00027585871145295864,
-    "batch_size": 32,
-    "n_trials_completed": 10,
-    "final_epochs": 50,
-    "early_stopping_patience": 15
-  },
-  "yaml_config": {
-    "params_file": "params.yaml",
-    "used_params": {
-      "prepare": {
-        "sequence_length": 10,
-        "random_state": 42
-      },
-      "model": {
-        "input_size": 12,
-        "num_classes": 2
-      },
-      "optuna": {
-        "n_trials": 10,
-        "timeout": 3600,
-        "study_name": "gru_fraud_detection",
-        "direction": "maximize",
-        "hyperparameters": {
-          "batch_size": {
-            "type": "choice",
-            "choices": [
-              32,
-              64,
-              128
-            ]
-          },
-          "hidden_size": {
-            "type": "int",
-            "low": 32,
-            "high": 256
-          },
-          "num_layers": {
-            "type": "int",
-            "low": 1,
-            "high": 3
-          },
-          "dropout": {
-            "type": "float",
-            "low": 0.0,
-            "high": 0.5
-          },
-          "learning_rate": {
-            "type": "float",
-            "low": 1e-05,
-            "high": 0.01
-          },
-          "optimizer": {
-            "type": "choice",
-            "choices": [
-              "adam",
-              "adamw",
-              "sgd"
-            ]
-          }
-        }
-      },
-      "training": {
-        "final_epochs": 50,
-        "early_stopping_patience": 15
-      },
-      "mlflow": {
-        "experiment_name": "credit_card_fraud_detection"
-      }
-    }
-  },
-  "metadata": {
-    "timestamp": "2025-08-24T13:55:20.191444",
-    "framework": "PyTorch",
-    "model_type": "GRU",
-    "task": "Credit Card Fraud Detection",
-    "mlflow_experiment": "credit_card_fraud_detection"
-  }
+  "num_classes": 2,
+  "experiment_name": "fraud_detection_evaluation",
+  "feature_names": [
+    "V3",
+    "V4",
+    "V9",
+    "V10",
+    "V11",
+    "V12",
+    "V14",
+    "V16",
+    "V17",
+    "V18",
+    "V21",
+    "V22"
+  ],
+  "label_col": "Class"
 }
