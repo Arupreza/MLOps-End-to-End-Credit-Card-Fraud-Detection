@@ -1,13 +1,13 @@
-# src/evaluate.py
+#!/usr/bin/env python3
 """
-Complete evaluation script for Credit Card Fraud Detection GRU Model
-Works with MLflow tracking and DVC integration
+FIXED Evaluation Script - Addresses the identified issues
 """
 
 import os
 import sys
 import json
 import logging
+import pickle
 from datetime import datetime
 import warnings
 warnings.filterwarnings('ignore')
@@ -35,13 +35,17 @@ import mlflow.pytorch
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# Set style for plots
-plt.style.use('default')
-sns.set_palette("husl")
+# MLflow configuration (same as training)
+os.environ['MLFLOW_TRACKING_URI'] = "https://dagshub.com/Arupreza/MlOps_End_to_End.mlflow"
+os.environ['MLFLOW_TRACKING_USERNAME'] = "Arupreza"
+os.environ['MLFLOW_TRACKING_PASSWORD'] = "0531a59c013804c71d1476a0ee381da8cd70f3e1"
+
+# Set MLflow tracking URI
+mlflow.set_tracking_uri(os.environ['MLFLOW_TRACKING_URI'])
 
 class CreditCardGRU(nn.Module):
     """
-    GRU model for credit card fraud detection - same as training
+    FIXED GRU model - addresses batch normalization issues
     """
     def __init__(self, input_size, hidden_size, num_layers, num_classes, dropout=0.5):
         super(CreditCardGRU, self).__init__()
@@ -75,9 +79,9 @@ class CreditCardGRU(nn.Module):
         # Activation functions
         self.relu = nn.ReLU()
         
-        # Batch normalization
-        self.bn1 = nn.BatchNorm1d(hidden_size // 2)
-        self.bn2 = nn.BatchNorm1d(hidden_size // 4)
+        # FIXED: Use LayerNorm instead of BatchNorm for more stable evaluation
+        self.ln1 = nn.LayerNorm(hidden_size // 2)
+        self.ln2 = nn.LayerNorm(hidden_size // 4)
     
     def forward(self, x):
         batch_size = x.size(0)
@@ -95,135 +99,280 @@ class CreditCardGRU(nn.Module):
         # Use the last output of the sequence
         last_output = gru_out[:, -1, :]
         
-        # Apply dropout
-        out = self.dropout(last_output)
+        # Apply dropout only during training
+        if self.training:
+            last_output = self.dropout(last_output)
         
-        # Fully connected layers with batch normalization
-        out = self.fc1(out)
-        out = self.bn1(out)
+        # Fully connected layers with layer normalization
+        out = self.fc1(last_output)
+        out = self.ln1(out)
         out = self.relu(out)
-        out = self.dropout(out)
+        if self.training:
+            out = self.dropout(out)
         
         out = self.fc2(out)
-        out = self.bn2(out)
+        out = self.ln2(out)
         out = self.relu(out)
-        out = self.dropout(out)
+        if self.training:
+            out = self.dropout(out)
         
         # Output layer
         out = self.fc3(out)
         
         return out
 
-def load_test_data(data_path="Data/processed"):
+def load_original_test_data(force_original=True):
     """
-    Load test data from processed files
+    Load ORIGINAL imbalanced test data, not the artificially balanced version
     """
-    logger.info(f"Loading test data from {data_path}")
+    logger.info("Looking for ORIGINAL test data...")
     
-    try:
-        # Try to find test data file
-        files = os.listdir(data_path)
-        test_files = [f for f in files if 'test' in f.lower()]
-        
-        if not test_files:
-            # If no test file, use the third processed file
-            processed_files = [f for f in files if f.startswith('creditcard_proces')]
-            if len(processed_files) >= 3:
-                test_file = processed_files[2]  # Assume third file is test
-            else:
-                raise FileNotFoundError("No test data found")
-        else:
-            test_file = test_files[0]
-        
-        logger.info(f"Loading test file: {test_file}")
-        test_df = pd.read_csv(os.path.join(data_path, test_file))
-        
-        # Separate features and target
-        if 'Class' in test_df.columns:
-            X_test = test_df.drop('Class', axis=1).values
-            y_test = test_df['Class'].values
-        else:
-            # Assume last column is target
-            X_test = test_df.iloc[:, :-1].values
-            y_test = test_df.iloc[:, -1].values
-        
-        logger.info(f"Test data loaded: {X_test.shape}, Labels: {y_test.shape}")
-        logger.info(f"Class distribution: Normal={np.sum(y_test==0)}, Fraud={np.sum(y_test==1)}")
-        
-        return X_test, y_test
-        
-    except Exception as e:
-        logger.error(f"Error loading test data: {e}")
-        return None, None
+    # First, try to find the original unbalanced dataset
+    original_paths = [
+        "Data/raw/creditcard.csv",
+        "data/raw/creditcard.csv", 
+        "Data/creditcard.csv",
+        "creditcard.csv"
+    ]
+    
+    for path in original_paths:
+        if os.path.exists(path):
+            logger.info(f"Found original dataset: {path}")
+            try:
+                # Load original data
+                df = pd.read_csv(path)
+                logger.info(f"Original data shape: {df.shape}")
+                
+                # Check class distribution
+                class_dist = df['Class'].value_counts()
+                logger.info(f"Original class distribution:\n{class_dist}")
+                fraud_ratio = class_dist[1] / len(df)
+                logger.info(f"Fraud ratio: {fraud_ratio:.4f} ({fraud_ratio:.2%})")
+                
+                if fraud_ratio > 0.1:  # If more than 10% fraud, it's likely balanced
+                    logger.warning("This appears to be a balanced dataset, not original")
+                    continue
+                
+                # Use last 20% as test set (more realistic)
+                test_size = int(0.2 * len(df))
+                test_df = df.tail(test_size).copy()
+                
+                logger.info(f"Created test set: {len(test_df)} samples")
+                test_class_dist = test_df['Class'].value_counts()
+                logger.info(f"Test class distribution:\n{test_class_dist}")
+                
+                # Separate features and labels
+                if 'Class' in test_df.columns:
+                    X_test = test_df.drop('Class', axis=1).values
+                    y_test = test_df['Class'].values
+                else:
+                    X_test = test_df.iloc[:, :-1].values
+                    y_test = test_df.iloc[:, -1].values
+                
+                return X_test, y_test, f"original_data_{test_size}_samples"
+                
+            except Exception as e:
+                logger.warning(f"Error loading {path}: {e}")
+                continue
+    
+    # Fallback: Use existing processed test data but warn about issues
+    logger.warning("Could not find original dataset, using processed test data")
+    logger.warning("Note: This data appears to be artificially balanced (50/50)")
+    
+    processed_paths = ["Data/processed", "data/processed"]
+    
+    for data_path in processed_paths:
+        if os.path.exists(data_path):
+            files = os.listdir(data_path)
+            test_files = [f for f in files if 'test' in f.lower() and f.endswith('.csv')]
+            
+            if test_files:
+                test_file = test_files[0]
+                test_path = os.path.join(data_path, test_file)
+                
+                df = pd.read_csv(test_path)
+                if 'Class' in df.columns:
+                    X_test = df.drop('Class', axis=1).values
+                    y_test = df['Class'].values
+                else:
+                    X_test = df.iloc[:, :-1].values
+                    y_test = df.iloc[:, -1].values
+                
+                return X_test, y_test, f"processed_{test_file}"
+    
+    raise FileNotFoundError("Could not find any test data!")
 
-def load_trained_model(model_path, model_info_path, device):
+def load_model_with_compatibility_fix(model_path, best_params, device):
     """
-    Load trained model from saved files
+    Load model with compatibility fixes for batch normalization issues
     """
-    logger.info(f"Loading model from {model_path}")
+    logger.info(f"Loading model with compatibility fixes...")
+    logger.info(f"Model path: {model_path}")
+    logger.info(f"Best params: {best_params}")
     
     try:
-        # Load model metadata
-        with open(model_info_path, 'r') as f:
-            model_info = json.load(f)
+        # Extract parameters
+        input_size = best_params.get('input_size', 12)
+        hidden_size = best_params.get('hidden_size', 128)
+        num_layers = best_params.get('num_layers', 2)
+        dropout = best_params.get('dropout', 0.3)
         
-        # Extract model parameters
-        if 'best_params' in model_info:
-            params = model_info['best_params']
+        logger.info(f"Creating model: input_size={input_size}, hidden_size={hidden_size}, num_layers={num_layers}")
+        
+        # Load the saved state dict first
+        state_dict = torch.load(model_path, map_location=device, weights_only=False)
+        logger.info(f"Loaded state dict with keys: {list(state_dict.keys())[:5]}...")
+        
+        # Check if the state dict uses BatchNorm or LayerNorm
+        has_batch_norm = any('bn1.weight' in key or 'bn2.weight' in key for key in state_dict.keys())
+        has_layer_norm = any('ln1.weight' in key or 'ln2.weight' in key for key in state_dict.keys())
+        
+        logger.info(f"Model uses BatchNorm: {has_batch_norm}, LayerNorm: {has_layer_norm}")
+        
+        if has_batch_norm:
+            # Original model with BatchNorm - need to use the old architecture
+            logger.info("Using original BatchNorm architecture for compatibility")
+            
+            class OriginalCreditCardGRU(nn.Module):
+                def __init__(self, input_size, hidden_size, num_layers, num_classes, dropout=0.5):
+                    super(OriginalCreditCardGRU, self).__init__()
+                    self.input_size = input_size
+                    self.hidden_size = hidden_size
+                    self.num_layers = num_layers
+                    self.num_classes = num_classes
+                    
+                    self.input_projection = nn.Linear(input_size, hidden_size)
+                    self.gru = nn.GRU(input_size=hidden_size, hidden_size=hidden_size, 
+                                     num_layers=num_layers, batch_first=True,
+                                     dropout=dropout if num_layers > 1 else 0, bidirectional=False)
+                    self.dropout = nn.Dropout(dropout)
+                    self.fc1 = nn.Linear(hidden_size, hidden_size // 2)
+                    self.fc2 = nn.Linear(hidden_size // 2, hidden_size // 4)
+                    self.fc3 = nn.Linear(hidden_size // 4, num_classes)
+                    self.relu = nn.ReLU()
+                    self.bn1 = nn.BatchNorm1d(hidden_size // 2)
+                    self.bn2 = nn.BatchNorm1d(hidden_size // 4)
+            
+                def forward(self, x):
+                    batch_size = x.size(0)
+                    x = self.input_projection(x)
+                    x = self.relu(x)
+                    h0 = torch.zeros(self.num_layers, batch_size, self.hidden_size).to(x.device)
+                    gru_out, _ = self.gru(x, h0)
+                    last_output = gru_out[:, -1, :]
+                    
+                    # CRITICAL FIX: Set batch norm to eval mode and handle single samples
+                    out = self.dropout(last_output) if self.training else last_output
+                    out = self.fc1(out)
+                    
+                    # Fix for BatchNorm with single samples
+                    if out.size(0) == 1:
+                        # For single sample, skip batch norm
+                        out = out
+                    else:
+                        out = self.bn1(out)
+                    out = self.relu(out)
+                    
+                    out = self.dropout(out) if self.training else out
+                    out = self.fc2(out)
+                    
+                    if out.size(0) == 1:
+                        out = out
+                    else:
+                        out = self.bn2(out)
+                    out = self.relu(out)
+                    
+                    out = self.dropout(out) if self.training else out
+                    out = self.fc3(out)
+                    return out
+            
+            model = OriginalCreditCardGRU(input_size, hidden_size, num_layers, 2, dropout)
         else:
-            # Default parameters if not found
-            params = {
-                'hidden_size': 128,
-                'num_layers': 2,
-                'dropout': 0.3
-            }
+            # Use the new LayerNorm architecture
+            model = CreditCardGRU(input_size, hidden_size, num_layers, 2, dropout)
         
-        # Determine input size from model info or data
-        if 'model_architecture' in model_info:
-            input_size = model_info['model_architecture'].get('input_size', 30)
-        else:
-            input_size = 30  # Default for credit card data
-        
-        # Create model
-        model = CreditCardGRU(
-            input_size=input_size,
-            hidden_size=params['hidden_size'],
-            num_layers=params['num_layers'],
-            num_classes=2,
-            dropout=params['dropout']
-        )
-        
-        # Load weights
-        model.load_state_dict(torch.load(model_path, map_location=device))
+        # Load the state dict
+        model.load_state_dict(state_dict)
         model.to(device)
-        model.eval()
+        model.eval()  # CRITICAL: Set to evaluation mode
         
-        logger.info("Model loaded successfully!")
-        logger.info(f"Model parameters: {params}")
+        # Test the model to see if it produces varied outputs
+        logger.info("Testing model output variation...")
+        test_input = torch.randn(10, 1, input_size).to(device)
         
+        with torch.no_grad():
+            test_outputs = model(test_input)
+            
+        # Check if outputs are all identical (indicating broken model)
+        if torch.allclose(test_outputs[0:1].repeat(len(test_outputs), 1), test_outputs, atol=1e-6):
+            logger.error("🚨 CRITICAL: Model produces identical outputs for different inputs!")
+            logger.error("This suggests the model was not properly trained or has issues")
+            
+            # Try to diagnose the issue
+            logger.info("Model state diagnosis:")
+            for name, param in model.named_parameters():
+                if param.requires_grad:
+                    logger.info(f"  {name}: mean={param.mean().item():.6f}, std={param.std().item():.6f}")
+                    
+            return None, None
+        else:
+            logger.info("✅ Model produces varied outputs - looks good!")
+            output_std = test_outputs.std().item()
+            logger.info(f"Output standard deviation: {output_std:.6f}")
+        
+        # Count parameters
+        total_params = sum(p.numel() for p in model.parameters())
+        trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        
+        model_info = {
+            'input_size': input_size,
+            'hidden_size': hidden_size,
+            'num_layers': num_layers,
+            'dropout': dropout,
+            'total_params': total_params,
+            'trainable_params': trainable_params,
+            'architecture_type': 'BatchNorm' if has_batch_norm else 'LayerNorm'
+        }
+        
+        logger.info("✅ Model loaded successfully with compatibility fixes!")
         return model, model_info
         
     except Exception as e:
         logger.error(f"Error loading model: {e}")
+        import traceback
+        traceback.print_exc()
         return None, None
 
-def predict_with_model(model, X_test, device, batch_size=64):
+def predict_with_fixed_model(model, X_test, device, batch_size=64):
     """
-    Generate predictions with the trained model
+    Generate predictions with fixes for batch normalization issues
     """
-    logger.info("Generating predictions...")
+    logger.info("Generating predictions with model fixes...")
     
-    # Create test dataset and loader
-    test_dataset = TensorDataset(torch.FloatTensor(X_test))
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+    # Ensure proper tensor format
+    if len(X_test.shape) == 2:
+        X_test_tensor = torch.FloatTensor(X_test).unsqueeze(1)  # Add sequence dimension
+    else:
+        X_test_tensor = torch.FloatTensor(X_test)
+    
+    logger.info(f"Input tensor shape: {X_test_tensor.shape}")
+    
+    # Use larger batch size to avoid BatchNorm issues with small batches
+    effective_batch_size = max(batch_size, 32)  # Minimum batch size for BatchNorm
+    
+    test_dataset = TensorDataset(X_test_tensor)
+    test_loader = DataLoader(test_dataset, batch_size=effective_batch_size, shuffle=False)
     
     predictions = []
     probabilities = []
     
-    model.eval()
+    model.eval()  # CRITICAL: Ensure evaluation mode
+    
     with torch.no_grad():
-        for (data,) in test_loader:
+        for batch_idx, (data,) in enumerate(test_loader):
             data = data.to(device)
+            
+            # Forward pass
             outputs = model(data)
             
             # Get probabilities and predictions
@@ -232,372 +381,157 @@ def predict_with_model(model, X_test, device, batch_size=64):
             
             predictions.extend(preds.cpu().numpy())
             probabilities.extend(probs.cpu().numpy())
+            
+            # Log progress every 100 batches
+            if batch_idx % 100 == 0:
+                logger.info(f"Processed batch {batch_idx}: outputs range [{outputs.min().item():.4f}, {outputs.max().item():.4f}]")
     
-    return np.array(predictions), np.array(probabilities)
+    predictions = np.array(predictions)
+    probabilities = np.array(probabilities)
+    
+    # Check prediction sanity
+    unique_preds, pred_counts = np.unique(predictions, return_counts=True)
+    logger.info(f"Prediction distribution: {dict(zip(unique_preds, pred_counts))}")
+    
+    if len(unique_preds) == 1:
+        logger.warning(f"🚨 Model only predicts class {unique_preds[0]}!")
+    
+    return predictions, probabilities
 
-def calculate_metrics(y_true, y_pred, y_proba):
+def main_fixed_evaluation():
     """
-    Calculate comprehensive evaluation metrics
+    Main evaluation function with all fixes applied
     """
-    logger.info("Calculating evaluation metrics...")
+    logger.info("🚀 STARTING FIXED EVALUATION")
+    logger.info("="*80)
     
-    # Basic metrics
-    accuracy = accuracy_score(y_true, y_pred)
-    precision = precision_score(y_true, y_pred, average='weighted', zero_division=0)
-    recall = recall_score(y_true, y_pred, average='weighted', zero_division=0)
-    f1 = f1_score(y_true, y_pred, average='weighted', zero_division=0)
-    
-    # Per-class metrics
-    precision_per_class = precision_score(y_true, y_pred, average=None, zero_division=0)
-    recall_per_class = recall_score(y_true, y_pred, average=None, zero_division=0)
-    f1_per_class = f1_score(y_true, y_pred, average=None, zero_division=0)
-    
-    # ROC AUC and PR AUC
-    try:
-        roc_auc = roc_auc_score(y_true, y_proba[:, 1])
-        pr_auc = average_precision_score(y_true, y_proba[:, 1])
-    except:
-        roc_auc = 0.0
-        pr_auc = 0.0
-    
-    # Confusion matrix
-    cm = confusion_matrix(y_true, y_pred)
-    
-    metrics = {
-        'accuracy': float(accuracy),
-        'precision': float(precision),
-        'recall': float(recall),
-        'f1_score': float(f1),
-        'roc_auc': float(roc_auc),
-        'pr_auc': float(pr_auc),
-        'normal_precision': float(precision_per_class[0]),
-        'normal_recall': float(recall_per_class[0]),
-        'normal_f1': float(f1_per_class[0]),
-        'fraud_precision': float(precision_per_class[1]),
-        'fraud_recall': float(recall_per_class[1]),
-        'fraud_f1': float(f1_per_class[1]),
-        'confusion_matrix': cm.tolist(),
-        'true_negatives': int(cm[0, 0]),
-        'false_positives': int(cm[0, 1]),
-        'false_negatives': int(cm[1, 0]),
-        'true_positives': int(cm[1, 1])
-    }
-    
-    return metrics
-
-def create_evaluation_plots(y_true, y_pred, y_proba, save_dir='reports'):
-    """
-    Create comprehensive evaluation plots
-    """
-    logger.info("Creating evaluation plots...")
-    
-    # Create reports directory
-    os.makedirs(save_dir, exist_ok=True)
-    
-    # Set up the plotting style
-    plt.rcParams['figure.figsize'] = (15, 12)
-    fig, axes = plt.subplots(2, 3, figsize=(18, 12))
-    
-    # 1. Confusion Matrix
-    cm = confusion_matrix(y_true, y_pred)
-    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', 
-                xticklabels=['Normal', 'Fraud'], yticklabels=['Normal', 'Fraud'],
-                ax=axes[0, 0])
-    axes[0, 0].set_title('Confusion Matrix', fontsize=14, fontweight='bold')
-    axes[0, 0].set_xlabel('Predicted Label')
-    axes[0, 0].set_ylabel('True Label')
-    
-    # 2. ROC Curve
-    fpr, tpr, _ = roc_curve(y_true, y_proba[:, 1])
-    roc_auc = auc(fpr, tpr)
-    
-    axes[0, 1].plot(fpr, tpr, color='darkorange', lw=2, 
-                    label=f'ROC curve (AUC = {roc_auc:.3f})')
-    axes[0, 1].plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
-    axes[0, 1].set_xlim([0.0, 1.0])
-    axes[0, 1].set_ylim([0.0, 1.05])
-    axes[0, 1].set_xlabel('False Positive Rate')
-    axes[0, 1].set_ylabel('True Positive Rate')
-    axes[0, 1].set_title('ROC Curve', fontsize=14, fontweight='bold')
-    axes[0, 1].legend(loc="lower right")
-    axes[0, 1].grid(True, alpha=0.3)
-    
-    # 3. Precision-Recall Curve
-    precision_curve, recall_curve, _ = precision_recall_curve(y_true, y_proba[:, 1])
-    pr_auc = auc(recall_curve, precision_curve)
-    
-    axes[0, 2].plot(recall_curve, precision_curve, color='blue', lw=2,
-                    label=f'PR curve (AUC = {pr_auc:.3f})')
-    axes[0, 2].set_xlabel('Recall')
-    axes[0, 2].set_ylabel('Precision')
-    axes[0, 2].set_title('Precision-Recall Curve', fontsize=14, fontweight='bold')
-    axes[0, 2].legend(loc="lower left")
-    axes[0, 2].grid(True, alpha=0.3)
-    
-    # 4. Class Distribution
-    true_counts = np.bincount(y_true)
-    pred_counts = np.bincount(y_pred)
-    
-    x = np.arange(2)
-    width = 0.35
-    
-    axes[1, 0].bar(x - width/2, true_counts, width, label='True', alpha=0.7, color='skyblue')
-    axes[1, 0].bar(x + width/2, pred_counts, width, label='Predicted', alpha=0.7, color='orange')
-    axes[1, 0].set_xlabel('Class')
-    axes[1, 0].set_ylabel('Count')
-    axes[1, 0].set_title('True vs Predicted Distribution', fontsize=14, fontweight='bold')
-    axes[1, 0].set_xticks(x)
-    axes[1, 0].set_xticklabels(['Normal', 'Fraud'])
-    axes[1, 0].legend()
-    axes[1, 0].grid(True, alpha=0.3)
-    
-    # 5. Probability Distribution
-    fraud_probs = y_proba[y_true == 1, 1]  # Fraud probabilities for actual fraud cases
-    normal_probs = y_proba[y_true == 0, 1]  # Fraud probabilities for normal cases
-    
-    axes[1, 1].hist(normal_probs, bins=50, alpha=0.7, label='Normal', color='blue')
-    axes[1, 1].hist(fraud_probs, bins=50, alpha=0.7, label='Fraud', color='red')
-    axes[1, 1].set_xlabel('Fraud Probability')
-    axes[1, 1].set_ylabel('Count')
-    axes[1, 1].set_title('Fraud Probability Distribution', fontsize=14, fontweight='bold')
-    axes[1, 1].legend()
-    axes[1, 1].grid(True, alpha=0.3)
-    
-    # 6. Performance Summary
-    metrics_text = f"""
-    Accuracy: {accuracy_score(y_true, y_pred):.4f}
-    Precision: {precision_score(y_true, y_pred, average='weighted'):.4f}
-    Recall: {recall_score(y_true, y_pred, average='weighted'):.4f}
-    F1-Score: {f1_score(y_true, y_pred, average='weighted'):.4f}
-    ROC AUC: {roc_auc:.4f}
-    PR AUC: {pr_auc:.4f}
-    
-    Fraud Detection:
-    Precision: {precision_score(y_true, y_pred, average=None)[1]:.4f}
-    Recall: {recall_score(y_true, y_pred, average=None)[1]:.4f}
-    F1-Score: {f1_score(y_true, y_pred, average=None)[1]:.4f}
-    """
-    
-    axes[1, 2].text(0.1, 0.9, metrics_text, fontsize=12, verticalalignment='top',
-                    bbox=dict(boxstyle='round', facecolor='lightgray', alpha=0.8),
-                    transform=axes[1, 2].transAxes)
-    axes[1, 2].set_title('Performance Summary', fontsize=14, fontweight='bold')
-    axes[1, 2].axis('off')
-    
-    plt.tight_layout()
-    plt.savefig(f'{save_dir}/evaluation_plots.png', dpi=300, bbox_inches='tight')
-    plt.close()
-    
-    logger.info(f"Evaluation plots saved to {save_dir}/evaluation_plots.png")
-
-def generate_classification_report(y_true, y_pred, save_dir='reports'):
-    """
-    Generate detailed classification report
-    """
-    os.makedirs(save_dir, exist_ok=True)
-    
-    report = classification_report(y_true, y_pred, 
-                                target_names=['Normal', 'Fraud'], 
-                                digits=4)
-    
-    report_path = f'{save_dir}/classification_report.txt'
-    with open(report_path, 'w') as f:
-        f.write("Credit Card Fraud Detection - Classification Report\n")
-        f.write("=" * 60 + "\n")
-        f.write(f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-        f.write("=" * 60 + "\n\n")
-        f.write(report)
-    
-    logger.info(f"Classification report saved to {report_path}")
-    return report
-
-def evaluate_model(model_path=None, model_info_path=None, data_path="Data/processed", 
-                save_reports=True, experiment_name="credit_card_fraud_detection"):
-    """
-    Complete model evaluation pipeline
-    """
-    logger.info("Starting model evaluation...")
-    
-    # Set device
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     logger.info(f"Using device: {device}")
     
-    # Auto-detect model files if not provided
-    if model_path is None:
-        model_files = []
-        for root, dirs, files in os.walk('.'):
-            model_files.extend([os.path.join(root, f) for f in files if f.endswith('.pth')])
-        
-        if model_files:
-            model_path = model_files[-1]  # Use the latest model
-            logger.info(f"Auto-detected model: {model_path}")
-        else:
-            raise FileNotFoundError("No model file found. Please train a model first.")
-    
-    if model_info_path is None:
-        info_files = []
-        for root, dirs, files in os.walk('.'):
-            info_files.extend([os.path.join(root, f) for f in files 
-                            if ('model_info' in f or 'metadata' in f) and f.endswith('.json')])
-        
-        if info_files:
-            model_info_path = info_files[-1]
-            logger.info(f"Auto-detected model info: {model_info_path}")
-        else:
-            logger.warning("No model info file found. Using default parameters.")
-            # Create a temporary model info
-            model_info_path = 'temp_model_info.json'
-            with open(model_info_path, 'w') as f:
-                json.dump({
-                    'best_params': {
-                        'hidden_size': 128,
-                        'num_layers': 2,
-                        'dropout': 0.3
-                    }
-                }, f)
-    
-    # MLflow setup
     try:
-        mlflow.set_experiment(experiment_name)
-        mlflow_available = True
-    except:
-        logger.warning("MLflow not available. Skipping MLflow logging.")
-        mlflow_available = False
-    
-    if mlflow_available:
-        with mlflow.start_run(run_name=f"evaluation_{datetime.now().strftime('%Y%m%d_%H%M%S')}"):
-            return _run_evaluation(model_path, model_info_path, data_path, device, save_reports, mlflow_available)
-    else:
-        return _run_evaluation(model_path, model_info_path, data_path, device, save_reports, mlflow_available)
-
-def _run_evaluation(model_path, model_info_path, data_path, device, save_reports, mlflow_available):
-    """
-    Internal evaluation function
-    """
-    # Load test data
-    X_test, y_test = load_test_data(data_path)
-    if X_test is None:
-        raise ValueError("Could not load test data")
-    
-    # Load trained model
-    model, model_info = load_trained_model(model_path, model_info_path, device)
-    if model is None:
-        raise ValueError("Could not load trained model")
-    
-    # Log parameters to MLflow if available
-    if mlflow_available:
-        mlflow.log_params({
-            'model_path': model_path,
-            'test_samples': len(X_test),
-            'evaluation_date': datetime.now().isoformat()
-        })
-    
-    # Generate predictions
-    y_pred, y_proba = predict_with_model(model, X_test, device)
-    
-    # Calculate metrics
-    metrics = calculate_metrics(y_test, y_pred, y_proba)
-    
-    # Log metrics to MLflow if available
-    if mlflow_available:
-        mlflow.log_metrics(metrics)
-    
-    if save_reports:
-        # Create evaluation plots
-        create_evaluation_plots(y_test, y_pred, y_proba)
+        # 1. Load ORIGINAL test data (not artificially balanced)
+        logger.info("Step 1: Loading test data...")
+        X_test, y_test, data_source = load_original_test_data()
+        logger.info(f"✅ Loaded test data from: {data_source}")
+        logger.info(f"Test data shape: {X_test.shape}, Labels: {y_test.shape}")
         
-        # Generate classification report
-        generate_classification_report(y_test, y_pred)
+        # Show actual class distribution
+        unique_labels, counts = np.unique(y_test, return_counts=True)
+        logger.info("Class distribution:")
+        for label, count in zip(unique_labels, counts):
+            logger.info(f"  Class {label}: {count:,} ({count/len(y_test):.1%})")
         
-        # Save detailed evaluation results
-        evaluation_results = {
-            'model_info': model_info,
-            'test_metrics': metrics,
-            'evaluation_date': datetime.now().isoformat(),
-            'test_samples': int(len(X_test)),
-            'model_path': model_path
-        }
+        # 2. Find and load the best model
+        logger.info("\nStep 2: Loading model...")
+        study_path = "optuna_study/study_results.json"
+        if os.path.exists(study_path):
+            with open(study_path, 'r') as f:
+                study_results = json.load(f)
+            best_params = study_results['best_params']
+            logger.info(f"Best Optuna accuracy: {study_results.get('best_value', 'N/A')}")
+            
+            # Find model file
+            optuna_models = []
+            if os.path.exists("optuna_artifacts"):
+                for root, dirs, files in os.walk("optuna_artifacts"):
+                    for file in files:
+                        if file.endswith('.pth'):
+                            optuna_models.append(os.path.join(root, file))
+            
+            if optuna_models:
+                model_path = max(optuna_models, key=os.path.getmtime)
+            else:
+                raise FileNotFoundError("No Optuna model files found")
+        else:
+            raise FileNotFoundError("No Optuna study results found")
         
-        os.makedirs('reports', exist_ok=True)
-        with open('reports/evaluation_results.json', 'w') as f:
-            json.dump(evaluation_results, f, indent=2)
+        logger.info(f"Using model: {model_path}")
         
-        # Create metrics file for DVC
-        dvc_metrics = {
-            'accuracy': metrics['accuracy'],
-            'precision': metrics['precision'],
-            'recall': metrics['recall'],
-            'f1_score': metrics['f1_score'],
-            'roc_auc': metrics['roc_auc'],
-            'fraud_precision': metrics['fraud_precision'],
-            'fraud_recall': metrics['fraud_recall'],
-            'fraud_f1': metrics['fraud_f1']
-        }
+        # 3. Load model with compatibility fixes
+        model, model_info = load_model_with_compatibility_fix(model_path, best_params, device)
+        if model is None:
+            raise ValueError("Failed to load model - please retrain!")
         
-        with open('reports/test_metrics.json', 'w') as f:
-            json.dump(dvc_metrics, f, indent=2)
+        # 4. Generate predictions with fixes
+        logger.info("\nStep 3: Generating predictions...")
+        y_pred, y_proba = predict_with_fixed_model(model, X_test, device)
         
-        if mlflow_available:
-            mlflow.log_artifacts('reports', 'evaluation_reports')
-    
-    # Print results
-    print("\n" + "="*70)
-    print("CREDIT CARD FRAUD DETECTION - EVALUATION RESULTS")
-    print("="*70)
-    print(f"Test Samples: {len(X_test):,}")
-    print(f"Normal Transactions: {np.sum(y_test == 0):,}")
-    print(f"Fraud Transactions: {np.sum(y_test == 1):,}")
-    print(f"Fraud Ratio: {np.mean(y_test):.4f}")
-    print("-" * 70)
-    print("OVERALL PERFORMANCE:")
-    print(f"  Accuracy:  {metrics['accuracy']:.4f}")
-    print(f"  Precision: {metrics['precision']:.4f}")
-    print(f"  Recall:    {metrics['recall']:.4f}")
-    print(f"  F1-Score:  {metrics['f1_score']:.4f}")
-    print(f"  ROC AUC:   {metrics['roc_auc']:.4f}")
-    print("-" * 70)
-    print("FRAUD DETECTION PERFORMANCE:")
-    print(f"  Precision: {metrics['fraud_precision']:.4f} (How many predicted frauds were actually frauds)")
-    print(f"  Recall:    {metrics['fraud_recall']:.4f} (How many actual frauds were detected)")
-    print(f"  F1-Score:  {metrics['fraud_f1']:.4f} (Balanced measure)")
-    print("-" * 70)
-    print("CONFUSION MATRIX:")
-    print(f"  True Negatives:  {metrics['true_negatives']:,} (Correctly identified normal)")
-    print(f"  False Positives: {metrics['false_positives']:,} (Incorrectly flagged as fraud)")
-    print(f"  False Negatives: {metrics['false_negatives']:,} (Missed frauds)")
-    print(f"  True Positives:  {metrics['true_positives']:,} (Correctly identified frauds)")
-    print("="*70)
-    
-    if save_reports:
-        print("\nReports saved to:")
-        print("  - reports/evaluation_plots.png")
-        print("  - reports/classification_report.txt")
-        print("  - reports/evaluation_results.json")
-        print("  - reports/test_metrics.json")
-    
-    logger.info("Evaluation completed successfully!")
-    
-    return model, metrics, evaluation_results if save_reports else None
-
-# Convenience function for quick evaluation
-def quick_evaluate(model_path=None, data_path="Data/processed"):
-    """
-    Quick evaluation without MLflow logging
-    """
-    return evaluate_model(model_path=model_path, data_path=data_path, 
-                        save_reports=True, experiment_name="quick_evaluation")
+        # 5. Calculate metrics
+        logger.info("\nStep 4: Calculating metrics...")
+        accuracy = accuracy_score(y_test, y_pred)
+        precision = precision_score(y_test, y_pred, average='weighted', zero_division=0)
+        recall = recall_score(y_test, y_pred, average='weighted', zero_division=0)
+        f1 = f1_score(y_test, y_pred, average='weighted', zero_division=0)
+        
+        try:
+            if len(np.unique(y_test)) > 1:
+                roc_auc = roc_auc_score(y_test, y_proba[:, 1])
+            else:
+                roc_auc = 0.5
+        except:
+            roc_auc = 0.5
+        
+        # Fraud-specific metrics
+        fraud_precision = precision_score(y_test, y_pred, pos_label=1, zero_division=0)
+        fraud_recall = recall_score(y_test, y_pred, pos_label=1, zero_division=0)
+        fraud_f1 = f1_score(y_test, y_pred, pos_label=1, zero_division=0)
+        
+        # Confusion matrix
+        cm = confusion_matrix(y_test, y_pred)
+        
+        # 6. Print results
+        print("\n" + "="*80)
+        print("🎯 FIXED CREDIT CARD FRAUD DETECTION EVALUATION")
+        print("="*80)
+        print(f"📊 Data source: {data_source}")
+        print(f"📊 Test Dataset: {len(X_test):,} samples")
+        print(f"   • Normal: {np.sum(y_test == 0):,} ({np.mean(y_test == 0):.1%})")
+        print(f"   • Fraud: {np.sum(y_test == 1):,} ({np.mean(y_test == 1):.1%})")
+        print(f"🤖 Model: {model_info['total_params']:,} parameters ({model_info['architecture_type']})")
+        print("-" * 80)
+        print("📈 PERFORMANCE METRICS:")
+        print(f"   • Overall Accuracy: {accuracy:.1%}")
+        print(f"   • Weighted Precision: {precision:.3f}")
+        print(f"   • Weighted Recall: {recall:.3f}")
+        print(f"   • Weighted F1: {f1:.3f}")
+        print(f"   • ROC AUC: {roc_auc:.3f}")
+        print("-" * 80)
+        print("🔍 FRAUD DETECTION PERFORMANCE:")
+        print(f"   • Fraud Precision: {fraud_precision:.3f}")
+        print(f"   • Fraud Recall: {fraud_recall:.3f}")
+        print(f"   • Fraud F1: {fraud_f1:.3f}")
+        print("-" * 80)
+        print("📊 CONFUSION MATRIX:")
+        if cm.shape == (2, 2):
+            tn, fp, fn, tp = cm.ravel()
+            print(f"   • True Negatives: {tn:,}")
+            print(f"   • False Positives: {fp:,}")
+            print(f"   • False Negatives: {fn:,}")
+            print(f"   • True Positives: {tp:,}")
+        else:
+            print(f"   {cm}")
+        print("="*80)
+        
+        # Check if results are reasonable
+        if accuracy > 0.85 and roc_auc > 0.7:
+            print("✅ Results look reasonable!")
+        elif accuracy <= 0.6:
+            print("🚨 Results still look suspicious - model may need retraining")
+        else:
+            print("⚠️  Results are improved but could be better")
+            
+        return True
+        
+    except Exception as e:
+        logger.error(f"Fixed evaluation failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
 
 if __name__ == "__main__":
-    # Run evaluation if script is called directly
-    try:
-        model, metrics, results = evaluate_model()
-        print(f"\nEvaluation completed! Main metrics:")
-        print(f"Accuracy: {metrics['accuracy']:.4f}")
-        print(f"Fraud Detection F1: {metrics['fraud_f1']:.4f}")
-    except Exception as e:
-        logger.error(f"Evaluation failed: {e}")
-        print(f"Error: {e}")
-        print("\nMake sure you have:")
-        print("1. A trained model (.pth file)")
-        print("2. Test data in Data/processed/")
-        print("3. Model info/metadata file (.json)")
+    success = main_fixed_evaluation()
+    if success:
+        print("\n🎉 FIXED EVALUATION COMPLETED!")
+    else:
+        print("\n❌ EVALUATION STILL HAS ISSUES")
+        print("💡 Consider retraining the model with proper validation")
