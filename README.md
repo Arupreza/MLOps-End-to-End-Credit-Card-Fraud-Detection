@@ -167,6 +167,17 @@ Evaluated on `Data/processed/creditcard_processed_test.csv` using the robust eva
 | **Class 0 (Normal)** | 0.9833 | 0.9894 | 0.9863 | 42,648 |
 | **Class 1 (Fraud)** | 0.9893 | 0.9832 | 0.9863 | 42,647 |
 
+## 📊 Model Performance Visualizations
+
+### Confusion Matrix
+![Confusion Matrix](reports/eval/20250824_230736/confusion_matrix.png)
+
+### ROC Curve
+![ROC Curve](reports/eval/20250824_230736/roc_curve.png)
+
+### Precision-Recall Curve
+![PR Curve](reports/eval/20250824_230736/pr_curve.png)
+
 ### 🔍 Evaluator Highlights
 - ✅ Uses training feature order from `models/model_info.json`
 - ✅ Auto-detects BatchNorm vs LayerNorm checkpoints
@@ -296,5 +307,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 **⭐ If this project helps you, please star the repo!**
 
 [![Star History Chart](https://api.star-history.com/svg?repos=Arupreza/MlOps_End_to_End&type=Date)](https://star-history.com/#Arupreza/MlOps_End_to_End&Date)
+
 
 </div>
