@@ -1,152 +1,197 @@
+# 🔍 MLOps End-to-End: Credit Card Fraud Detection
 
-🔍 MLOps End-to-End: Credit Card Fraud Detection
-
-Python 3.8+ | PyTorch 2.0+ | MLflow Tracking | DVC Pipeline | MIT License
+[![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://python.org)
+[![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-orange.svg)](https://pytorch.org)
+[![MLflow](https://img.shields.io/badge/MLflow-Tracking-green.svg)](https://mlflow.org)
+[![DVC](https://img.shields.io/badge/DVC-Pipeline-purple.svg)](https://dvc.org)
+[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 A production-ready MLOps pipeline for credit card fraud detection using deep learning, featuring automated hyperparameter optimization, experiment tracking, and data versioning.
 
--------------------------------------------------------------------------------
-🎯 Project Overview
--------------------------------------------------------------------------------
+---
+
+## 🎯 Project Overview
+
 This repository implements a complete end-to-end machine learning operations (MLOps) pipeline for detecting fraudulent credit card transactions. The project demonstrates modern ML engineering practices with automated workflows, reproducible experiments, and comprehensive model tracking.
 
-Key Features
-- Deep Learning Model: GRU (Gated Recurrent Unit) neural network for sequence-style modeling
-- Hyperparameter Optimization: Optuna-powered search (configurable trials: 15–100+)
-- Experiment Tracking: Full MLflow integration (local or remote, e.g., DagHub)
-- Data Versioning: DVC-managed artifacts and reproducible pipelines
-- Robust Evaluation:
-  • Feature-schema alignment (enforces the exact training column order)
-  • BN/LN auto-detect (loads BatchNorm or LayerNorm checkpoints safely)
-  • Positive-class auto-detection (chooses the correct logit via ROC-AUC)
-  • Threshold sweep to maximize F1 / analyze precision–recall trade-offs
-- Production Ready: YAML-configured, containerizable, and deployment-friendly
+### ✨ Key Features
 
--------------------------------------------------------------------------------
-🏗️ Architecture
--------------------------------------------------------------------------------
-Raw Data -> Data Processing -> Feature Engineering -> Hyperparameter Optimization
--> Model Training -> Model Evaluation -> Model Deployment
+- **Deep Learning Model**: GRU (Gated Recurrent Unit) neural network for sequence-style modeling
+- **Hyperparameter Optimization**: Optuna-powered search (configurable trials: 15–100+)
+- **Experiment Tracking**: Full MLflow integration (local or remote, e.g., DagHub)
+- **Data Versioning**: DVC-managed artifacts and reproducible pipelines
+- **Robust Evaluation**:
+  - Feature-schema alignment (enforces the exact training column order)
+  - BN/LN auto-detect (loads BatchNorm or LayerNorm checkpoints safely)
+  - Positive-class auto-detection (chooses the correct logit via ROC-AUC)
+  - Threshold sweep to maximize F1 / analyze precision–recall trade-offs
+- **Production Ready**: YAML-configured, containerizable, and deployment-friendly
 
-Backbones:
-- DVC for data/pipeline versioning
-- MLflow for optimization/training/evaluation tracking
-- Optuna for HPO
+---
 
--------------------------------------------------------------------------------
-📁 Repository Structure
--------------------------------------------------------------------------------
+## 🏗️ Architecture
+
+```mermaid
+graph LR
+    A[Raw Data] --> B[Data Processing]
+    B --> C[Feature Engineering]
+    C --> D[Hyperparameter Optimization]
+    D --> E[Model Training]
+    E --> F[Model Evaluation]
+    F --> G[Model Deployment]
+    
+    style A fill:#f9f,stroke:#333,stroke-width:2px
+    style G fill:#9f9,stroke:#333,stroke-width:2px
+```
+
+**Backbones**:
+- **DVC** for data/pipeline versioning
+- **MLflow** for optimization/training/evaluation tracking
+- **Optuna** for HPO
+
+---
+
+## 📁 Repository Structure
+
+```
 MLOps_End_to_End/
-├─ Data/
-│  ├─ processed/                 # DVC-tracked processed datasets
-│  └─ raw/                       # Raw credit card transaction data
-├─ data_src/                     # EDA & analysis
-│  ├─ EDA.ipynb
-│  ├─ data_inspection.py
-│  ├─ missing_values_analysis.py
-│  └─ multivariate_analysis.py
-├─ src/
-│  ├─ train.py                   # GRU training with Optuna + MLflow
-│  ├─ evaluate.py                # Robust evaluator (schema, BN/LN, threshold sweep)
-│  ├─ feature_selection.py
-│  └─ __init__.py
-├─ models/                       # Trained models + metadata (DVC/MLflow artifacts)
-│  ├─ best_fraud_detection_model.pth
-│  └─ model_info.json            # feature_names, label_col, best_params, etc.
-├─ optuna_study/                 # Study summary/artifacts
-├─ mlruns/                       # Local MLflow store (if using file backend)
-├─ params.yaml                   # Pipeline configuration
-├─ dvc.yaml                      # DVC pipeline definition
-├─ run_training.py               # (Optional) training entrypoint
-└─ requirements.txt              # Dependencies
+├── 📂 Data/
+│   ├── processed/                   # DVC-tracked processed datasets
+│   └── raw/                         # Raw credit card transaction data
+├── 📂 data_src/                     # EDA & analysis
+│   ├── EDA.ipynb
+│   ├── data_inspection.py
+│   ├── missing_values_analysis.py
+│   └── multivariate_analysis.py
+├── 📂 src/
+│   ├── train.py                     # GRU training with Optuna + MLflow
+│   ├── evaluate.py                  # Robust evaluator (schema, BN/LN, threshold sweep)
+│   ├── feature_selection.py
+│   └── __init__.py
+├── 📂 models/                       # Trained models + metadata (DVC/MLflow artifacts)
+│   ├── best_fraud_detection_model.pth
+│   └── model_info.json              # feature_names, label_col, best_params, etc.
+├── 📂 optuna_study/                 # Study summary/artifacts
+├── 📂 mlruns/                       # Local MLflow store (if using file backend)
+├── 📂 reports/                      # Evaluation reports and visualizations
+├── params.yaml                      # Pipeline configuration
+├── dvc.yaml                         # DVC pipeline definition
+├── run_training.py                  # (Optional) training entrypoint
+├── requirements.txt                 # Dependencies
+└── README.md                        # This file
+```
 
-NOTE: models/model_info.json includes the feature_names (training column order),
-label_col, num_classes, best_params, and (optionally) the source MLflow run id.
-The evaluator uses this to guarantee train/eval consistency.
+> **Note**: `models/model_info.json` includes the `feature_names` (training column order), `label_col`, `num_classes`, `best_params`, and (optionally) the source MLflow run id. The evaluator uses this to guarantee train/eval consistency.
 
--------------------------------------------------------------------------------
-🚀 Quick Start
--------------------------------------------------------------------------------
-1) Clone & Setup
-   git clone https://dagshub.com/Arupreza/MlOps_End_to_End.git
-   cd MlOps_End_to_End
-   python -m venv venv && source venv/bin/activate
-   pip install -r requirements.txt
+---
 
-2) (Optional) Initialize DVC
-   dvc init
-   dvc remote add -d origin https://dagshub.com/Arupreza/MlOps_End_to_End.dvc
-   dvc pull
+## 🚀 Quick Start
 
-3) Train (with Optuna)
-   # Runs Optuna optimization (e.g., 15 trials in train.py),
-   # logs to MLflow, and writes:
-   # - models/best_fraud_detection_model.pth
-   # - models/model_info.json (feature schema + params)
-   python src/train.py
+### 1️⃣ Clone & Setup
 
-   (You can change the number of trials in src/train.py via n_trials.)
+```bash
+git clone https://dagshub.com/Arupreza/MlOps_End_to_End.git
+cd MlOps_End_to_End
+python -m venv venv && source venv/bin/activate  # Linux/Mac
+# python -m venv venv && venv\Scripts\activate     # Windows
+pip install -r requirements.txt
+```
 
-4) Evaluate
-   # Auto-discovers model + metadata, enforces feature order, logs to MLflow,
-   # and saves artifacts to reports/eval/<timestamp>/
-   python src/evaluate.py
+### 2️⃣ (Optional) Initialize DVC
 
-   Artifacts:
-   - metrics.json, classification_report.txt, predictions.csv
-   - confusion_matrix.png, roc_curve.png, pr_curve.png
-   - threshold_sweep.csv (binary)
+```bash
+dvc init
+dvc remote add -d origin https://dagshub.com/Arupreza/MlOps_End_to_End.dvc
+dvc pull
+```
 
-5) Monitor Experiments
-   # Local UI
-   mlflow ui
+### 3️⃣ Train (with Optuna)
 
-   # Or configure a remote MLflow (e.g., DagHub) via env vars:
-   # export MLFLOW_TRACKING_URI=...
-   # export MLFLOW_TRACKING_USERNAME=...
-   # export MLFLOW_TRACKING_PASSWORD=...
+```bash
+# Runs Optuna optimization (e.g., 15 trials in train.py),
+# logs to MLflow, and writes:
+# - models/best_fraud_detection_model.pth
+# - models/model_info.json (feature schema + params)
+python src/train.py
+```
 
--------------------------------------------------------------------------------
-🔬 Latest Model Performance
--------------------------------------------------------------------------------
-Evaluated on Data/processed/creditcard_processed_test.csv using the robust evaluator.
+> You can change the number of trials in `src/train.py` via `n_trials` parameter.
 
-- Accuracy: 0.9863
-- Precision (weighted): 0.9863
-- Recall (weighted): 0.9863
-- F1 (weighted): 0.9863
-- Precision (macro): 0.9863
-- Recall (macro): 0.9863
-- F1 (macro): 0.9863
-- ROC-AUC: 0.99835
-- Average Precision (PR-AUC): 0.99843
-- Best Threshold (F1 sweep): 0.08
+### 4️⃣ Evaluate
 
-Class-wise (argmax):
-- Class 0: Precision 0.9833 | Recall 0.9894 | F1 0.9863 | Support 42648
-- Class 1: Precision 0.9893 | Recall 0.9832 | F1 0.9863 | Support 42647
+```bash
+# Auto-discovers model + metadata, enforces feature order, logs to MLflow,
+# and saves artifacts to reports/eval/<timestamp>/
+python src/evaluate.py
+```
 
-Evaluator highlights:
-- Uses training feature order from models/model_info.json
-- Auto-detects BatchNorm vs LayerNorm checkpoints
-- Picks correct positive logit via ROC-AUC (guards label/score inversions)
-- Performs threshold sweep and reports the best-F1 operating point
+**Generated Artifacts:**
+- `metrics.json`, `classification_report.txt`, `predictions.csv`
+- `confusion_matrix.png`, `roc_curve.png`, `pr_curve.png`
+- `threshold_sweep.csv` (binary)
 
--------------------------------------------------------------------------------
-📊 Experiment Tracking
--------------------------------------------------------------------------------
+### 5️⃣ Monitor Experiments
+
+```bash
+# Local UI
+mlflow ui
+```
+
+Or configure a remote MLflow (e.g., DagHub) via environment variables:
+```bash
+export MLFLOW_TRACKING_URI=...
+export MLFLOW_TRACKING_USERNAME=...
+export MLFLOW_TRACKING_PASSWORD=...
+```
+
+---
+
+## 🔬 Latest Model Performance
+
+Evaluated on `Data/processed/creditcard_processed_test.csv` using the robust evaluator.
+
+### 📊 Overall Metrics
+| Metric | Score |
+|--------|-------|
+| **Accuracy** | 0.9863 |
+| **Precision (weighted)** | 0.9863 |
+| **Recall (weighted)** | 0.9863 |
+| **F1 (weighted)** | 0.9863 |
+| **ROC-AUC** | 0.99835 |
+| **PR-AUC** | 0.99843 |
+| **Best Threshold (F1 sweep)** | 0.08 |
+
+### 🎯 Class-wise Performance (argmax)
+| Class | Precision | Recall | F1-Score | Support |
+|-------|-----------|--------|----------|---------|
+| **Class 0 (Normal)** | 0.9833 | 0.9894 | 0.9863 | 42,648 |
+| **Class 1 (Fraud)** | 0.9893 | 0.9832 | 0.9863 | 42,647 |
+
+### 🔍 Evaluator Highlights
+- ✅ Uses training feature order from `models/model_info.json`
+- ✅ Auto-detects BatchNorm vs LayerNorm checkpoints
+- ✅ Picks correct positive logit via ROC-AUC (guards label/score inversions)
+- ✅ Performs threshold sweep and reports the best-F1 operating point
+
+---
+
+## 📊 Experiment Tracking
+
 All experiments are tracked via MLflow and can be viewed locally or on DagHub.
 
-- Configurable Hyperparameter Trials (Optuna)
-- Model Versioning & Artifacts (checkpoints, plots, metadata)
-- Metrics Dashboard (train/val + evaluation)
+- **Configurable Hyperparameter Trials** (Optuna)
+- **Model Versioning & Artifacts** (checkpoints, plots, metadata)
+- **Metrics Dashboard** (train/val + evaluation)
 
-Example MLflow tags: phase=evaluation, dataset=creditcard_processed_test.csv,
-norm_type={batch|layer}
+**Example MLflow tags**: `phase=evaluation`, `dataset=creditcard_processed_test.csv`, `norm_type={batch|layer}`
 
--------------------------------------------------------------------------------
-🔧 Configuration (params.yaml example)
--------------------------------------------------------------------------------
+---
+
+## 🔧 Configuration
+
+### `params.yaml` Example
+
+```yaml
 model:
   num_classes: 2
 
@@ -158,82 +203,98 @@ training:
   final_epochs: 40
   early_stopping_patience: 10
 
--------------------------------------------------------------------------------
-📈 Pipeline Stages
--------------------------------------------------------------------------------
-Stage 1: Data Preparation
-- Clean/split/scale datasets under Data/processed/
-- Keep a consistent label column (Class by default)
+mlflow:
+  experiment_name: "credit_card_fraud_detection"
+  tracking_uri: "https://dagshub.com/Arupreza/MlOps_End_to_End.mlflow"
+```
 
-Stage 2: Hyperparameter Optimization
+---
+
+## 📈 Pipeline Stages
+
+### Stage 1: Data Preparation
+- Clean/split/scale datasets under `Data/processed/`
+- Keep a consistent label column (`Class` by default)
+
+### Stage 2: Hyperparameter Optimization
 - Optuna search with MLflow logging
-- Best trial artifacts in optuna_artifacts/
+- Best trial artifacts in `optuna_artifacts/`
 
-Stage 3: Model Training
-- GRU + (LayerNorm by default)
+### Stage 3: Model Training
+- GRU + LayerNorm (by default)
 - Early stopping + gradient clipping
 - Class weights for imbalance
 
-Stage 4: Robust Evaluation
+### Stage 4: Robust Evaluation
 - Schema-aligned evaluation
 - BN/LN auto-compatibility
 - Positive-class detection + threshold sweep
 - MLflow + local artifacts
 
--------------------------------------------------------------------------------
-🛠️ Development
--------------------------------------------------------------------------------
-Extend the Model
-- Edit src/train.py (architecture/hparams)
+---
+
+## 🛠️ Development
+
+### Extend the Model
+- Edit `src/train.py` (architecture/hparams)
 - Adjust Optuna search spaces
 - Add metrics to MLflow logs
 
-Add New Features
-1) Update params.yaml or code
-2) Modify dvc.yaml pipeline
-3) dvc repro
-4) Track results in MLflow
+### Add New Features
+1. Update `params.yaml` or code
+2. Modify `dvc.yaml` pipeline
+3. Run `dvc repro`
+4. Track results in MLflow
 
--------------------------------------------------------------------------------
-🧩 Troubleshooting
--------------------------------------------------------------------------------
-- Great val, poor test -> likely feature order mismatch or wrong checkpoint.
-  Ensure models/model_info.json exists and models/best_fraud_detection_model.pth
-  points to your best weights.
+---
 
-- state_dict keys mismatch (bn vs ln) -> evaluator auto-detects BN/LN; re-run
-  python src/evaluate.py.
+## 🧩 Troubleshooting
 
-- All-one-class predictions -> open reports/eval/.../metrics.json:
-  • diagnostics.feature_mismatch should show no missing features
-  • chosen_pos_index indicates which logit column is treated as positive
+| Issue | Solution |
+|-------|----------|
+| **Great val, poor test** | Likely feature order mismatch or wrong checkpoint. Ensure `models/model_info.json` exists and `models/best_fraud_detection_model.pth` points to your best weights. |
+| **state_dict keys mismatch (bn vs ln)** | Evaluator auto-detects BN/LN; re-run `python src/evaluate.py`. |
+| **All-one-class predictions** | Open `reports/eval/.../metrics.json`: <br>• `diagnostics.feature_mismatch` should show no missing features <br>• `chosen_pos_index` indicates which logit column is treated as positive |
 
--------------------------------------------------------------------------------
-🤝 Contributing
--------------------------------------------------------------------------------
-1) Fork
-2) git checkout -b feature/amazing-feature
-3) Commit (-m "Add amazing feature")
-4) Push & open PR
+---
 
--------------------------------------------------------------------------------
-📄 License
--------------------------------------------------------------------------------
-MIT — see LICENSE
+## 🤝 Contributing
 
--------------------------------------------------------------------------------
-🙏 Acknowledgments
--------------------------------------------------------------------------------
-- MLflow for experiment tracking
-- DVC for data versioning & pipelines
-- Optuna for HPO
-- DagHub for hosted MLOps
-- PyTorch for DL
+1. **Fork** the repository
+2. Create your feature branch: `git checkout -b feature/amazing-feature`
+3. Commit your changes: `git commit -m "Add amazing feature"`
+4. Push to the branch: `git push origin feature/amazing-feature`
+5. Open a **Pull Request**
 
--------------------------------------------------------------------------------
-📞 Contact
--------------------------------------------------------------------------------
-Arupreza — https://github.com/Arupreza
-Project — https://dagshub.com/Arupreza/MlOps_End_to_End
+---
 
-(⭐ If this project helps you, please star the repo!)
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+---
+
+## 🙏 Acknowledgments
+
+- [MLflow](https://mlflow.org) for experiment tracking
+- [DVC](https://dvc.org) for data versioning & pipelines
+- [Optuna](https://optuna.org) for hyperparameter optimization
+- [DagHub](https://dagshub.com) for hosted MLOps
+- [PyTorch](https://pytorch.org) for deep learning
+
+---
+
+## 📞 Contact
+
+**Arupreza** — [GitHub](https://github.com/Arupreza)  
+**Project Link** — [DagHub Repository](https://dagshub.com/Arupreza/MlOps_End_to_End)
+
+---
+
+<div align="center">
+
+**⭐ If this project helps you, please star the repo!**
+
+[![Star History Chart](https://api.star-history.com/svg?repos=Arupreza/MlOps_End_to_End&type=Date)](https://star-history.com/#Arupreza/MlOps_End_to_End&Date)
+
+</div>
