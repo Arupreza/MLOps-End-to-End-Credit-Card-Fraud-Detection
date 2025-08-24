@@ -7,7 +7,7 @@ model:
   num_classes: 2
 
 optuna:
-  n_trials: 20
+  n_trials: 10
   timeout: 3600
   study_name: gru_fraud_detection
   direction: maximize
