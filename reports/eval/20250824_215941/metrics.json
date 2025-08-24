@@ -1,0 +1,57 @@
+{
+  "dataset": "/home/lisa/Arupreza/MlOps_End_to_End/Data/processed/creditcard_processed_test.csv",
+  "model_checkpoint": "/home/lisa/Arupreza/MlOps_End_to_End/models/best_fraud_detection_model.pth",
+  "device": "cuda",
+  "input_size": 12,
+  "norm_type": "layer",
+  "hparams": {
+    "hidden_size": 256,
+    "num_layers": 2,
+    "dropout": 0.45760831318272044,
+    "num_classes": 2,
+    "label_col": "Class",
+    "feature_names_used": [
+      "V3",
+      "V4",
+      "V9",
+      "V10",
+      "V11",
+      "V12",
+      "V14",
+      "V16",
+      "V17",
+      "V18",
+      "V21",
+      "V22"
+    ]
+  },
+  "diagnostics": {
+    "feature_mismatch": {
+      "missing": [],
+      "extra": []
+    },
+    "auc_col0": 0.0016511577506509109,
+    "auc_col1": 0.998349754659485,
+    "chosen_pos_index": 1
+  },
+  "metrics_argmax": {
+    "accuracy": 0.9862946245383668,
+    "precision_weighted": 0.9863134003101733,
+    "recall_weighted": 0.9862946245383668,
+    "f1_weighted": 0.9862944917452622,
+    "precision_macro": 0.9863134357361578,
+    "recall_macro": 0.986294588111553,
+    "f1_macro": 0.986294491244156,
+    "support_pos": 42647,
+    "support_neg": 42648,
+    "roc_auc": 0.998349754659485,
+    "average_precision": 0.9984324452596074
+  },
+  "metrics_threshold_sweep": {
+    "best_threshold": 0.08,
+    "f1_weighted_at_best_threshold": 0.9875488631793892,
+    "precision_at_best_threshold": 0.983377891433221,
+    "recall_at_best_threshold": 0.9918634370530166,
+    "accuracy_at_best_threshold": 0.9875490943197139
+  }
+}

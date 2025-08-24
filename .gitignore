@@ -19,7 +19,7 @@ __pycache__/
 
 # Model files (but allow DVC tracking)
 /models/
-/reports/
+#/reports/
 
 # Large binary files
 *.dylib
