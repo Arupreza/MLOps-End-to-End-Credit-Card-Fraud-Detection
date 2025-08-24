@@ -29,27 +29,23 @@ This repository implements a complete end-to-end machine learning operations (ML
 
 ---
 
-## 🏗️ Architecture
+-------------------------------------------------------------------------------
 
-```mermaid
-graph LR
-    A[Raw Data] --> B[Data Processing]
-    B --> C[Feature Engineering]
-    C --> D[Hyperparameter Optimization]
-    D --> E[Model Training]
-    E --> F[Model Evaluation]
-    F --> G[Model Deployment]
-    
-    style A fill:#f9f,stroke:#333,stroke-width:2px
-    style G fill:#9f9,stroke:#333,stroke-width:2px
-```
+🏗️ Architecture
 
-**Backbones**:
-- **DVC** for data/pipeline versioning
-- **MLflow** for optimization/training/evaluation tracking
-- **Optuna** for HPO
+-------------------------------------------------------------------------------
 
----
+Raw Data -> Data Processing -> Feature Engineering -> Hyperparameter Optimization
+
+-> Model Training -> Model Evaluation -> Model Deployment
+
+Backbones:
+
+- DVC for data/pipeline versioning
+
+- MLflow for optimization/training/evaluation tracking
+
+- Optuna for HPO
 
 ## 📁 Repository Structure
 
