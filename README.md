@@ -170,7 +170,7 @@ Evaluated on `Data/processed/creditcard_processed_test.csv` using the robust eva
 ## 📊 Model Performance Visualizations
 
 ### Confusion Matrix
-<img src="reports/eval/20250824_230736/confusion_matrix.png" alt="Confusion Matrix" width="600" height="400">
+<img src="reports/eval/20250824_230736/confusion_matrix.png" alt="Confusion Matrix" width="400" height="400">
 
 ### ROC Curve
 <img src="reports/eval/20250824_230736/roc_curve.png" alt="ROC Curve" width="500" height="400">
@@ -310,4 +310,5 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 
 </div>
+
 
