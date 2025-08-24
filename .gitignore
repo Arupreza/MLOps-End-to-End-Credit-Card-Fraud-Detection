@@ -23,5 +23,3 @@ __pycache__/
 *.so
 *.bin
 *.dat
-
-test.ipynb

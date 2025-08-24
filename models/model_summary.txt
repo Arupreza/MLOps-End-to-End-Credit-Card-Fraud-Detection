@@ -1,0 +1,23 @@
+Credit Card Fraud Detection Model Summary
+==================================================
+Training completed: 2025-08-24 05:37:12
+Configuration source: params.yaml
+Best validation accuracy: 0.0000 (0.00%)
+
+Configuration from params.yaml:
+  Sequence length: 10
+  Optimization trials: 20
+  Final training epochs: 50
+
+Optimal hyperparameters found:
+  Hidden size: 256
+  Number of layers: 1
+  Dropout: 0.2673
+  Optimizer: Adam
+  Learning rate: 0.000111
+  Batch size: 16
+
+Files created:
+  - models/best_fraud_detection_model.pth
+  - models/model_info.json
+  - models/model_summary.txt
