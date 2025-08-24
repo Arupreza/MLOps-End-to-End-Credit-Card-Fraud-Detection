@@ -125,6 +125,79 @@ class CreditCardGRU(nn.Module):
 
 
 # =========================
+# Confusion matrix (requested style)
+# =========================
+def plot_confusion_matrix_with_percentages_bin(y_true, y_pred, labels, save_path=None, show=False):
+    """
+    Draw a confusion matrix heatmap with BOTH raw counts and row-wise percentages.
+    Colors specific tick labels if they exist:
+      - "Normal Transection" -> green
+      - "Suspicion  Transection" -> red  (note the double space, as requested)
+    """
+    cm = confusion_matrix(y_true, y_pred)
+
+    # Row-wise percentages (% of actual class predicted as each class)
+    row_sums = cm.sum(axis=1, keepdims=True)
+    # Avoid division by zero
+    row_sums[row_sums == 0] = 1
+    cm_percentages = cm / row_sums * 100.0
+
+    fig, ax = plt.subplots(figsize=(8, 7))
+
+    # Base heatmap (no annotations from seaborn; we place our own)
+    sns.heatmap(cm, annot=False, cmap="Pastel2", cbar=False, ax=ax)
+
+    # Overlay counts + percentages
+    n_rows, n_cols = cm.shape
+    for i in range(n_rows):
+        for j in range(n_cols):
+            ax.text(
+                j + 0.5, i + 0.50,
+                f"{cm[i, j]}",
+                ha="center", va="center",
+                fontsize=25, fontweight="bold", color="black",
+            )
+            ax.text(
+                j + 0.5, i + 0.80,
+                f"{cm_percentages[i, j]:.2f}%",
+                ha="center", va="center",
+                fontsize=18, fontweight="bold", color="black",
+            )
+
+    ax.set_xlabel("Predicted Class", fontweight="bold", fontsize=19, color="darkblue")
+    ax.set_ylabel("Actual Class", fontweight="bold", fontsize=19, color="darkblue")
+    ax.set_title("Confusion Matrix", fontsize=16, fontweight="bold")
+
+    # Ticks in the middle of each cell
+    ax.set_xticks(np.arange(len(labels)) + 0.5)
+    ax.set_yticks(np.arange(len(labels)) + 0.5)
+    ax.set_xticklabels(labels, fontweight="bold", fontsize=16, rotation=90)
+    ax.set_yticklabels(labels, fontweight="bold", fontsize=16, rotation=0)
+
+    # Optional coloring of specific labels, if present
+    try:
+        xt = ax.get_xticklabels()
+        yt = ax.get_yticklabels()
+        if "Normal Transection" in labels:
+            idx = labels.index("Normal Transection")
+            xt[idx].set_color("Green")
+            yt[idx].set_color("Green")
+        if "Suspicion  Transection" in labels:  # note the two spaces
+            idx = labels.index("Suspicion  Transection")
+            xt[idx].set_color("Red")
+            yt[idx].set_color("Red")
+    except Exception:
+        pass
+
+    plt.tight_layout()
+    if save_path:
+        plt.savefig(save_path, dpi=200, bbox_inches="tight")
+        plt.close(fig)
+    elif show:
+        plt.show()
+
+
+# =========================
 # Helpers
 # =========================
 def _first_existing(*paths):
@@ -402,7 +475,6 @@ def main():
             pass
 
     cls_report = classification_report(y_true, y_pred, digits=4, zero_division=0)
-    cm = confusion_matrix(y_true, y_pred, labels=list(range(hp["num_classes"])))
 
     # Threshold sweep (binary) to maximize F1
     metrics_thresh = {}
@@ -464,18 +536,16 @@ def main():
     pred_csv_path = os.path.join(out_dir, "predictions.csv")
     pred_df.to_csv(pred_csv_path, index=False)
 
-    # Confusion matrix
-    plt.figure(figsize=(5, 4))
-    sns.heatmap(cm, annot=True, fmt="d", cbar=True,
-                xticklabels=list(range(hp["num_classes"])),
-                yticklabels=list(range(hp["num_classes"])))
-    plt.xlabel("Predicted")
-    plt.ylabel("True")
-    plt.title("Confusion Matrix (argmax)")
-    plt.tight_layout()
+    # --- Confusion Matrix (requested custom heatmap) ---
+    cm_labels = (
+        ["Normal", "Suspicion"]  # keep your exact spellings
+        if hp["num_classes"] == 2
+        else [str(i) for i in range(hp["num_classes"])]
+    )
     cm_path = os.path.join(out_dir, "confusion_matrix.png")
-    plt.savefig(cm_path, dpi=200)
-    plt.close()
+    plot_confusion_matrix_with_percentages_bin(
+        y_true=y_true, y_pred=y_pred, labels=cm_labels, save_path=cm_path
+    )
 
     # ROC / PR (binary)
     roc_path = pr_path = None
@@ -556,10 +626,10 @@ def main():
         if best_thresh is not None:
             print(f"\nBest threshold by F1: {best_thresh:.3f}")
             for k in ["f1_weighted_at_best_threshold", "precision_at_best_threshold",
-                    "recall_at_best_threshold", "accuracy_at_best_threshold"]:
+                      "recall_at_best_threshold", "accuracy_at_best_threshold"]:
                 print(f"{k:>30}: {metrics_thresh[k]}")
         print("\nClassification Report (argmax):\n")
-        print(cls_report)
+        print(classification_report(y_true, y_pred, digits=4, zero_division=0))
         print("=" * 66 + "\n")
 
 
