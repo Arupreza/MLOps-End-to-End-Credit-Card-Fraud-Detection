@@ -3,23 +3,41 @@ venv/
 env/
 .env
 
-# Data files
-Data/
-*.csv
-
 # Python cache
 __pycache__/
 *.pyc
 *.pyo
 
-# Model files
+# DVC - Allow .dvc tracking files, but ignore actual data
+/Data/processed/
+/Data/raw/
+*.csv
 *.pkl
 *.joblib
 *.h5
 *.model
+
+# Model files (but allow DVC tracking)
+/models/
+/reports/
 
 # Large binary files
 *.dylib
 *.so
 *.bin
 *.dat
+
+# MLflow
+mlruns/
+.mlflow/
+
+# Optuna
+optuna.db
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
