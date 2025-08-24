@@ -170,13 +170,13 @@ Evaluated on `Data/processed/creditcard_processed_test.csv` using the robust eva
 ## 📊 Model Performance Visualizations
 
 ### Confusion Matrix
-<img src="reports/eval/20250824_230736/confusion_matrix.png" alt="Confusion Matrix" width="200" height="200">
+<img src="reports/eval/20250824_230736/confusion_matrix.png" alt="Confusion Matrix" width="350" height="350">
 
 ### ROC Curve
-<img src="reports/eval/20250824_230736/roc_curve.png" alt="ROC Curve" width="200" height="200">
+<img src="reports/eval/20250824_230736/roc_curve.png" alt="ROC Curve" width="350" height="350">
 
 ### Precision-Recall Curve
-<img src="reports/eval/20250824_230736/pr_curve.png" alt="PR Curve" width="200" height="200">
+<img src="reports/eval/20250824_230736/pr_curve.png" alt="PR Curve" width="350" height="350">
 
 ### 🔍 Evaluator Highlights
 - ✅ Uses training feature order from `models/model_info.json`
@@ -310,6 +310,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 
 </div>
+
 
 
 
