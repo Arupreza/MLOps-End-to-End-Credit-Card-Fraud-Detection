@@ -24,5 +24,23 @@
     "V21",
     "V22"
   ],
-  "label_col": "Class"
+  "label_col": "Class",
+  "input_size": 10000,
+  "generated_at": "2025-08-26T13:21:07",
+  "source": "test_csv_only",
+  "required_columns": [
+    "V3",
+    "V4",
+    "V9",
+    "V10",
+    "V11",
+    "V12",
+    "V14",
+    "V16",
+    "V17",
+    "V18",
+    "V21",
+    "V22",
+    "Class"
+  ]
 }

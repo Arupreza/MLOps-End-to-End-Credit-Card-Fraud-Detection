@@ -76,6 +76,7 @@ MLOps_End_to_End/
 ├── 📂 reports/                      # Evaluation reports and visualizations
 ├── params.yaml                      # Pipeline configuration
 ├── dvc.yaml                         # DVC pipeline definition
+├── run_training.py                  # (Optional) training entrypoint
 ├── requirements.txt                 # Dependencies
 └── README.md                        # This file
 ```
@@ -309,8 +310,3 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 
 </div>
-
-
-
-
-

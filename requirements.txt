@@ -13,3 +13,4 @@ ipykernel
 seaborn
 tdqm
 matplotlib
+streamlit
