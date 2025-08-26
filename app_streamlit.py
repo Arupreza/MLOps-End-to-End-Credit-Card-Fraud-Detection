@@ -1,5 +1,6 @@
 # app_streamlit.py
 import os
+import io
 import json
 from typing import List, Tuple
 
@@ -31,20 +32,36 @@ st.markdown("""
 - **Features**: `V1–V28` (anonymized), `Amount`, (often `Time`/`id`), and **`Class`** (0=normal, 1=fraud).  
 """)
 
-# Only user control
-st.subheader("Settings")
-percent = st.slider("Use % of data (stratified by `Class`)", 1, 100, 20, 1)
-run_eval = st.button("Run Evaluation")
+# =========================
+# Paths & Defaults
+# =========================
+# Default internal path; can be overridden by env var TEST_DATA_PATH
+TEST_CSV_DEFAULT = "Data/processed/creditcard_processed_test.csv"
+TEST_CSV = os.getenv("TEST_DATA_PATH", TEST_CSV_DEFAULT)
 
-# =========================
-# Paths
-# =========================
-TEST_CSV  = "Data/processed/creditcard_processed_test.csv"
 INFO_JSON = "models/model_info.json"
 MODEL_PTH = "models/best_fraud_detection_model.pth"
 
 # Optional fallback list if model_info lacks features
 TARGET_COLS = ['V3','V4','V9','V10','V11','V12','V14','V16','V17','V18','V21','V22','Class']
+
+# =========================
+# Sidebar Controls
+# =========================
+st.subheader("Settings")
+with st.sidebar:
+    st.header("Data Source")
+    uploaded = st.file_uploader(
+        "Upload a CSV file",
+        type=["csv"],
+        accept_multiple_files=False,
+        help="If none provided, the app uses TEST_DATA_PATH or the built-in default path."
+    )
+    use_default_if_missing = st.toggle("Use default dataset if no upload", value=True)
+    st.caption(f"Default path: `{TEST_CSV}` (override via TEST_DATA_PATH)")
+
+percent = st.slider("Use % of data (stratified by `Class`)", 1, 100, 20, 1)
+run_eval = st.button("Run Evaluation")
 
 # =========================
 # Model (from your evaluate.py)
@@ -157,7 +174,6 @@ def plot_confusion_matrix_with_percentages_bin(y_true, y_pred, labels):
     ax.set_xticklabels(labels, fontweight="bold", fontsize=16, rotation=90)
     ax.set_yticklabels(labels, fontweight="bold", fontsize=16, rotation=0)
 
-    # color the specific tick labels exactly as requested
     try:
         xt = ax.get_xticklabels(); yt = ax.get_yticklabels()
         if "Normal Transection" in labels:
@@ -173,7 +189,18 @@ def plot_confusion_matrix_with_percentages_bin(y_true, y_pred, labels):
     return fig
 
 # =========================
-# Helpers
+# Cached loaders
+# =========================
+@st.cache_data(show_spinner=False)
+def _load_csv_from_path(path: str) -> pd.DataFrame:
+    return pd.read_csv(path)
+
+@st.cache_data(show_spinner=False)
+def _load_csv_from_bytes(b: bytes) -> pd.DataFrame:
+    return pd.read_csv(io.BytesIO(b))
+
+# =========================
+# Meta / checkpoint helpers
 # =========================
 def load_model_info(path: str) -> Tuple[List[str], int, int, dict]:
     """Load feature_names & hyperparams; force input_size = len(feature_names)."""
@@ -185,7 +212,6 @@ def load_model_info(path: str) -> Tuple[List[str], int, int, dict]:
 
     feature_names = meta.get("feature_names")
     if not feature_names:
-        # fallback to our known 12-feature set if not present
         feature_names = [c for c in TARGET_COLS if c != "Class"]
 
     if not feature_names:
@@ -239,11 +265,26 @@ def stratified_fraction(df: pd.DataFrame, frac: float, label_col: str = "Class",
 # Main
 # =========================
 if run_eval:
-    # --- Load data
-    if not os.path.exists(TEST_CSV):
-        st.error(f"CSV not found: {TEST_CSV}")
-        st.stop()
-    df = pd.read_csv(TEST_CSV)
+    # --- Load data (uploaded > default path)
+    csv_source = None
+    if uploaded is not None:
+        try:
+            df = _load_csv_from_bytes(uploaded.read())
+            csv_source = f"uploaded:{uploaded.name}"
+        except Exception as e:
+            st.error(f"Failed to read uploaded CSV: {e}")
+            st.stop()
+    else:
+        if use_default_if_missing:
+            if not os.path.exists(TEST_CSV):
+                st.error(f"CSV not found: {TEST_CSV}\nUpload a CSV or set TEST_DATA_PATH.")
+                st.stop()
+            df = _load_csv_from_path(TEST_CSV)
+            csv_source = TEST_CSV
+        else:
+            st.info("Please upload a CSV (toggle is off for default).")
+            st.stop()
+
     if "Class" not in df.columns:
         st.error("Ground-truth label column `Class` not found in the CSV.")
         st.stop()
@@ -325,7 +366,7 @@ if run_eval:
     c1, c2 = st.columns(2)
     with c1:
         st.write({
-            "CSV": TEST_CSV,
+            "CSV": csv_source,
             "Rows used": f"{len(df_sub)} / {len(df)} ({percent}%)",
             "Model": MODEL_PTH,
             "Meta": INFO_JSON,
@@ -366,4 +407,4 @@ if run_eval:
     st.code(report, language="text")
 
 else:
-    st.info("Adjust the percentage and click **Run Evaluation** to run the model and see results.")
+    st.info("Upload a CSV (or rely on the default path), adjust the percentage, and click **Run Evaluation** to run the model and see results.")
