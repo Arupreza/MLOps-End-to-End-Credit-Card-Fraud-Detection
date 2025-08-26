@@ -146,51 +146,7 @@ export MLFLOW_TRACKING_PASSWORD=...
 ```
 
 ---
-## 🐳 Docker Usage
 
-This project ships with a production-ready `Dockerfile` for containerized deployment of the Streamlit evaluation app.
-
-### 🔨 Build the Image
-
-From the project root:
-
-```bash
-docker build -t arupreza/fraud-eval-app:latest .
-```
-
-### ▶️ Run the App
-
-**Option A — With baked-in models/data**  
-If you copied `models/` and `Data/processed/` into the image:
-
-```bash
-docker run -d --name fraud-app -p 8501:8501 arupreza/fraud-eval-app:latest
-```
-
-Then open http://localhost:8501.
-
-**Option B — Mount host models/data**  
-Keep the image slim and mount from host:
-
-```bash
-docker run -d --name fraud-app \
-  -p 8501:8501 \
-  -v $(pwd)/models:/app/models \
-  -v $(pwd)/Data/processed:/app/Data/processed \
-  -e TEST_DATA_PATH=/app/Data/processed/creditcard_processed_test.csv \
-  arupreza/fraud-eval-app:latest
-```
-
-On **Windows PowerShell**:
-
-```powershell
-docker run -d --name fraud-app `
-  -p 8501:8501 `
-  -v C:\Users\rezan\Arupreza\MlOps_End_to_End\models:/app/models `
-  -v C:\Users\rezan\Arupreza\MlOps_End_to_End\Data\processed:/app/Data/processed `
-  -e TEST_DATA_PATH=/app/Data/processed/creditcard_processed_test.csv `
-  arupreza/fraud-eval-app:latest
-  
 ## 🔬 Latest Model Performance
 
 Evaluated on `Data/processed/creditcard_processed_test.csv` using the robust evaluator.
