@@ -367,18 +367,3 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - [PyTorch](https://pytorch.org) for deep learning
 
 ---
-
-## 📞 Contact
-
-**Arupreza** — [GitHub](https://github.com/Arupreza)  
-**Project Link** — [DagHub Repository](https://dagshub.com/Arupreza/MlOps_End_to_End)
-
----
-
-<div align="center">
-
-**⭐ If this project helps you, please star the repo!**
-
-[![Star History Chart](https://api.star-history.com/svg?repos=Arupreza/MlOps_End_to_End&type=Date)](https://star-history.com/#Arupreza/MlOps_End_to_End&Date)
-
-</div>
