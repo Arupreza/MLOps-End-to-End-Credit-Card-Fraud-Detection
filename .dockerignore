@@ -1,0 +1,21 @@
+# VCS
+.git
+.gitignore
+
+# Python caches
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+
+# OS/editor
+.DS_Store
+.vscode/
+.idea/
+
+# Big / local data not needed in image (mount instead)
+mlruns/
+reports/
+notebooks/
+.env
