@@ -4,6 +4,7 @@
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-orange.svg)](https://pytorch.org)
 [![MLflow](https://img.shields.io/badge/MLflow-Tracking-green.svg)](https://mlflow.org)
 [![DVC](https://img.shields.io/badge/DVC-Pipeline-purple.svg)](https://dvc.org)
+[![Docker](https://img.shields.io/badge/Docker-Containerization-blue.svg)](https://www.docker.com)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 A production-ready MLOps pipeline for credit card fraud detection using deep learning, featuring automated hyperparameter optimization, experiment tracking, and data versioning.
