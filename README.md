@@ -147,6 +147,79 @@ export MLFLOW_TRACKING_PASSWORD=...
 
 ---
 
+## 🐳 Docker Usage
+
+This project ships with a production-ready `Dockerfile` for containerized deployment of the Streamlit evaluation app.
+
+### 🔨 Build the Image
+
+From the project root:
+
+```bash
+docker build -t arupreza/fraud-eval-app:latest .
+```
+
+### ▶️ Run the App
+
+**Option A — With baked-in models/data**  
+If you copied `models/` and `Data/processed/` into the image:
+
+```bash
+docker run -d --name fraud-app -p 8501:8501 arupreza/fraud-eval-app:latest
+```
+
+Then open http://localhost:8501.
+
+**Option B — Mount host models/data**  
+Keep the image slim and mount from host:
+
+```bash
+docker run -d --name fraud-app \
+  -p 8501:8501 \
+  -v $(pwd)/models:/app/models \
+  -v $(pwd)/Data/processed:/app/Data/processed \
+  -e TEST_DATA_PATH=/app/Data/processed/creditcard_processed_test.csv \
+  arupreza/fraud-eval-app:latest
+```
+
+On **Windows PowerShell**:
+
+```powershell
+docker run -d --name fraud-app `
+  -p 8501:8501 `
+  -v C:\Users\rezan\Arupreza\MlOps_End_to_End\models:/app/models `
+  -v C:\Users\rezan\Arupreza\MlOps_End_to_End\Data\processed:/app/Data/processed `
+  -e TEST_DATA_PATH=/app/Data/processed/creditcard_processed_test.csv `
+  arupreza/fraud-eval-app:latest
+```
+
+### 📂 Inside the Container
+
+- **App**: `/app/app_streamlit.py`
+- **Models**: `/app/models`  
+- **Data**: `/app/Data/processed`
+
+Verify contents:
+
+```bash
+docker exec -it fraud-app ls /app/models
+docker exec -it fraud-app head -n 5 /app/Data/processed/creditcard_processed_test.csv
+```
+
+### 🧹 Maintenance
+
+**Stop & remove**:
+```bash
+docker rm -f fraud-app
+```
+
+**Clean old images/layers**:
+```bash
+docker system prune -f
+```
+
+---
+
 ## 🔬 Latest Model Performance
 
 Evaluated on `Data/processed/creditcard_processed_test.csv` using the robust evaluator.
@@ -308,6 +381,5 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 **⭐ If this project helps you, please star the repo!**
 
 [![Star History Chart](https://api.star-history.com/svg?repos=Arupreza/MlOps_End_to_End&type=Date)](https://star-history.com/#Arupreza/MlOps_End_to_End&Date)
-
 
 </div>
